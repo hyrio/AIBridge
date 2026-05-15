@@ -8,8 +8,7 @@ namespace AIBridge.Editor
     /// Skills 目录支持说明：
     /// - Claude: 支持 .claude/skills/ 目录（Agent Skills 开放标准）
     /// - Cursor: 支持 .cursor/skills/ 目录（Agent Skills 开放标准）
-    /// - Codex: 不支持独立 Skills 目录，使用包内路径引用
-    /// - Cline: 不支持 Skills 概念，仅支持 .clinerules/ 规则文件
+    /// - Codex/Cline: AIBridge 统一安装到项目内 Skills 目录，便于规则文件引用和后续扩展。
     /// </summary>
     internal static class AssistantIntegrationRegistry
     {
@@ -34,10 +33,10 @@ namespace AIBridge.Editor
                 {
                     Id = "codex",
                     DisplayName = "Codex",
-                    SupportsSkillDirectory = false,
+                    SupportsSkillDirectory = true,
                     RootRuleFileName = "AGENTS.md",
-                    SkillDirectoryRelativePath = null,
-                    SkillFileName = null,
+                    SkillDirectoryRelativePath = ".codex/skills/aibridge",
+                    SkillFileName = "SKILL.md",
                     RootRuleTemplateRelativePath = "Templates~/Rules/Codex.RootRule.md",
                     MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock,
                     TemplateId = "unity-project-rules",
@@ -60,10 +59,10 @@ namespace AIBridge.Editor
                 {
                     Id = "cline",
                     DisplayName = "Cline",
-                    SupportsSkillDirectory = false,
+                    SupportsSkillDirectory = true,
                     RootRuleFileName = ".clinerules/aibridge.md",
-                    SkillDirectoryRelativePath = null,
-                    SkillFileName = null,
+                    SkillDirectoryRelativePath = ".clinerules/skills/aibridge",
+                    SkillFileName = "SKILL.md",
                     RootRuleTemplateRelativePath = "Templates~/Rules/Cline.RootRule.md",
                     MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock,
                     TemplateId = "unity-project-rules",

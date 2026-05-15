@@ -240,22 +240,34 @@ namespace AIBridge.Editor
         /// </summary>
         private static string GetSourceSkillPath()
         {
-            // Try to find the package in Packages folder
+            var sourceSkillRoot = GetSourceSkillRootPath();
+            if (string.IsNullOrEmpty(sourceSkillRoot))
+            {
+                return null;
+            }
+
+            var sourceSkillPath = Path.Combine(sourceSkillRoot, SKILL_FILE_NAME);
+            return File.Exists(sourceSkillPath) ? sourceSkillPath : null;
+        }
+
+        /// <summary>
+        /// Get the source Skill~ directory from the package.
+        /// </summary>
+        private static string GetSourceSkillRootPath()
+        {
             var projectRoot = GetProjectRoot();
 
-            // Method 1: Direct package path (for local/embedded packages)
-            var directPath = Path.Combine(projectRoot, "Packages", PACKAGE_NAME, "Skill~", SKILL_FILE_NAME);
-            if (File.Exists(directPath))
+            var directPath = Path.Combine(projectRoot, "Packages", PACKAGE_NAME, "Skill~");
+            if (Directory.Exists(directPath))
             {
                 return directPath;
             }
 
-            // Method 2: Use PackageInfo to resolve package path (for git/registry packages)
             var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath($"Packages/{PACKAGE_NAME}");
             if (packageInfo != null)
             {
-                var packagePath = Path.Combine(packageInfo.resolvedPath, "Skill~", SKILL_FILE_NAME);
-                if (File.Exists(packagePath))
+                var packagePath = Path.Combine(packageInfo.resolvedPath, "Skill~");
+                if (Directory.Exists(packagePath))
                 {
                     return packagePath;
                 }
@@ -336,6 +348,7 @@ namespace AIBridge.Editor
                         string skillFilePath;
                         result.SkillFileAction = InstallSkillFileForTarget(projectRoot, target, sourceSkillPath, out skillFilePath);
                         result.SkillFilePath = skillFilePath;
+                        result.AdditionalSkillFilePaths.AddRange(InstallAdditionalSkillDirectoriesForTarget(projectRoot, target));
                     }
 
                     var template = RuleTemplateLoader.Load(projectRoot, target.RootRuleTemplateRelativePath);
@@ -375,18 +388,95 @@ namespace AIBridge.Editor
             return existed ? IntegrationAction.UpdatedBlock : IntegrationAction.CreatedFile;
         }
 
+        private static List<string> InstallAdditionalSkillDirectoriesForTarget(string projectRoot, AssistantIntegrationTarget target)
+        {
+            var installedSkillFiles = new List<string>();
+            var sourceSkillRoot = GetSourceSkillRootPath();
+            if (string.IsNullOrEmpty(sourceSkillRoot) || !Directory.Exists(sourceSkillRoot))
+            {
+                return installedSkillFiles;
+            }
+
+            var targetSkillRoot = GetTargetSkillRootDirectory(projectRoot, target);
+            if (string.IsNullOrEmpty(targetSkillRoot))
+            {
+                return installedSkillFiles;
+            }
+
+            foreach (var sourceSkillDir in Directory.GetDirectories(sourceSkillRoot))
+            {
+                var sourceSkillFile = Path.Combine(sourceSkillDir, SKILL_FILE_NAME);
+                if (!File.Exists(sourceSkillFile))
+                {
+                    continue;
+                }
+
+                var skillName = Path.GetFileName(sourceSkillDir);
+                var targetSkillDir = Path.Combine(targetSkillRoot, skillName);
+                var targetSkillFile = Path.Combine(targetSkillDir, SKILL_FILE_NAME);
+
+                // 子目录 Skill 独立安装，先清空目标目录可避免删除源文件后残留旧资源。
+                if (Directory.Exists(targetSkillDir))
+                {
+                    Directory.Delete(targetSkillDir, true);
+                }
+
+                CopyDirectory(sourceSkillDir, targetSkillDir);
+                installedSkillFiles.Add(targetSkillFile);
+            }
+
+            return installedSkillFiles;
+        }
+
+        private static string GetTargetSkillRootDirectory(string projectRoot, AssistantIntegrationTarget target)
+        {
+            if (!target.SupportsSkillDirectory || string.IsNullOrEmpty(target.SkillDirectoryRelativePath))
+            {
+                return null;
+            }
+
+            var mainSkillDir = Path.Combine(projectRoot, target.SkillDirectoryRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            return Directory.GetParent(mainSkillDir)?.FullName;
+        }
+
+        private static void CopyDirectory(string sourceDir, string targetDir)
+        {
+            Directory.CreateDirectory(targetDir);
+
+            foreach (var filePath in Directory.GetFiles(sourceDir))
+            {
+                if (filePath.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var targetFile = Path.Combine(targetDir, Path.GetFileName(filePath));
+                File.Copy(filePath, targetFile, true);
+            }
+
+            foreach (var childDir in Directory.GetDirectories(sourceDir))
+            {
+                var targetChildDir = Path.Combine(targetDir, Path.GetFileName(childDir));
+                CopyDirectory(childDir, targetChildDir);
+            }
+        }
+
         private static Dictionary<string, string> BuildTemplateTokens(string projectRoot, AssistantIntegrationTarget target)
         {
             var cliExeName = GetCliExecutableName();
             var skillDocPath = target.SupportsSkillDirectory
                 ? "/" + target.GetSkillFileRelativePath()
                 : "/Packages/" + PACKAGE_NAME + "/Skill~/" + SKILL_FILE_NAME;
+            var prefabPatchSkillDocPath = target.SupportsSkillDirectory
+                ? "/" + target.GetSiblingSkillFileRelativePath("aibridge-prefab-patch")
+                : "/Packages/" + PACKAGE_NAME + "/Skill~/aibridge-prefab-patch/" + SKILL_FILE_NAME;
             return new Dictionary<string, string>
             {
                 { "CLI_PATH", "./" + CLI_CACHE_FOLDER + "/" + cliExeName },
                 { "CLI_EXE_NAME", cliExeName },
                 { "CLI_CACHE_DIR", CLI_CACHE_FOLDER },
                 { "SKILL_DOC_PATH", skillDocPath },
+                { "PREFAB_PATCH_SKILL_DOC_PATH", prefabPatchSkillDocPath },
                 { "PROJECT_ROOT_RULE_FILE", target.RootRuleFileName },
                 { "ASSISTANT_NAME", target.DisplayName },
                 { "PROJECT_ROOT", projectRoot }
@@ -439,6 +529,10 @@ namespace AIBridge.Editor
                 {
                     builder.AppendLine("- Skill: " + result.SkillFileAction + " (" + result.SkillFilePath + ")");
                 }
+                foreach (var additionalSkillPath in result.AdditionalSkillFilePaths)
+                {
+                    builder.AppendLine("- Additional Skill: " + additionalSkillPath);
+                }
                 builder.AppendLine("- Rule: " + result.RootRuleAction + FormatPathSuffix(result.RootRuleFilePath));
                 builder.AppendLine();
             }
@@ -481,17 +575,41 @@ namespace AIBridge.Editor
                     // 清理 Skill 目录（如果支持）
                     if (target.SupportsSkillDirectory && !string.IsNullOrEmpty(target.SkillDirectoryRelativePath))
                     {
-                        var skillDir = Path.Combine(projectRoot, target.SkillDirectoryRelativePath.Replace('/', Path.DirectorySeparatorChar));
-                        if (Directory.Exists(skillDir))
-                        {
-                            Directory.Delete(skillDir, true);
-                            AIBridgeLogger.LogInfo($"[SkillInstaller] Removed Skill directory for {target.DisplayName}: {skillDir}");
-                        }
+                        CleanupSkillDirectoriesForTarget(projectRoot, target);
                     }
                 }
                 catch (Exception ex)
                 {
                     AIBridgeLogger.LogWarning($"[SkillInstaller] Failed to cleanup {target.DisplayName}: {ex.Message}");
+                }
+            }
+        }
+
+        private static void CleanupSkillDirectoriesForTarget(string projectRoot, AssistantIntegrationTarget target)
+        {
+            var skillDirs = new List<string>();
+            var mainSkillDir = Path.Combine(projectRoot, target.SkillDirectoryRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            skillDirs.Add(mainSkillDir);
+
+            var targetSkillRoot = GetTargetSkillRootDirectory(projectRoot, target);
+            var sourceSkillRoot = GetSourceSkillRootPath();
+            if (!string.IsNullOrEmpty(targetSkillRoot) && !string.IsNullOrEmpty(sourceSkillRoot) && Directory.Exists(sourceSkillRoot))
+            {
+                foreach (var sourceSkillDir in Directory.GetDirectories(sourceSkillRoot))
+                {
+                    if (File.Exists(Path.Combine(sourceSkillDir, SKILL_FILE_NAME)))
+                    {
+                        skillDirs.Add(Path.Combine(targetSkillRoot, Path.GetFileName(sourceSkillDir)));
+                    }
+                }
+            }
+
+            foreach (var skillDir in skillDirs.Distinct())
+            {
+                if (Directory.Exists(skillDir))
+                {
+                    Directory.Delete(skillDir, true);
+                    AIBridgeLogger.LogInfo($"[SkillInstaller] Removed Skill directory for {target.DisplayName}: {skillDir}");
                 }
             }
         }

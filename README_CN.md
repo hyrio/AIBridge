@@ -7,7 +7,7 @@
 [English](./README.md) | 中文
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.2.3](https://img.shields.io/badge/Package-1.2.3-5b6cff?style=flat-square)
+![Package 1.2.4](https://img.shields.io/badge/Package-1.2.4-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
@@ -100,7 +100,11 @@ macOS/Linux 可使用随包平台 CLI，或根据项目配置通过 `dotnet` 运
 ./AIBridgeCache/CLI/AIBridgeCLI.exe selection get --includeComponents true
 ./AIBridgeCache/CLI/AIBridgeCLI.exe prefab get_info --prefabPath "Assets/Prefabs/Player.prefab"
 ./AIBridgeCache/CLI/AIBridgeCLI.exe prefab get_hierarchy --prefabPath "Assets/Prefabs/Player.prefab"
+./AIBridgeCache/CLI/AIBridgeCLI.exe prefab patch --prefabPath "Assets/Prefabs/Player.prefab" --ops "patch_ops.json"
+./AIBridgeCache/CLI/AIBridgeCLI.exe prefab patch --prefabPath "Assets/Prefabs/Player.prefab" --ops "patch_ops.json" --dryRun true
 ```
+
+复杂 Prefab 修改请使用安装后的 `aibridge-prefab-patch` Skill，把操作写入 JSON 文件，并先执行 dry-run。
 
 ### 组件检查与编辑
 

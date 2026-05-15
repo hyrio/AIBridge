@@ -183,7 +183,7 @@ namespace AIBridge.Editor
             }
 
             var go = ResolveGameObject(context, path);
-            var componentType = ResolveComponentType(typeName);
+            var componentType = ComponentTypeResolver.Resolve(typeName);
             if (componentType == null)
             {
                 throw new PatchException($"Component type not found: {typeName}");
@@ -216,7 +216,7 @@ namespace AIBridge.Editor
             }
 
             var value = GetValue(operation, "value");
-            var changed = WriteProperties(context, target.SerializedTarget, new Dictionary<string, object> { { propertyName, value } });
+            var changed = WriteProperties(context, target.TargetObject, new Dictionary<string, object> { { propertyName, value } });
             AddResult(context, index, op, target.Path, changed, propertyName);
         }
 
@@ -235,7 +235,7 @@ namespace AIBridge.Editor
                 propertyValues[Convert.ToString(entry.Key, CultureInfo.InvariantCulture)] = entry.Value;
             }
 
-            var changed = WriteProperties(context, target.SerializedTarget, propertyValues);
+            var changed = WriteProperties(context, target.TargetObject, propertyValues);
             AddResult(context, index, op, target.Path, changed, propertyValues.Count + " properties");
         }
 
@@ -270,7 +270,7 @@ namespace AIBridge.Editor
                 mode = op == "append_array" ? "append" : "replace";
             }
 
-            var so = new SerializedObject(target.SerializedTarget);
+            var so = new SerializedObject(target.TargetObject);
             so.Update();
 
             var arrayProp = so.FindProperty(propertyName);
@@ -323,7 +323,7 @@ namespace AIBridge.Editor
                 throw new PatchException($"Operation #{index + 1} is missing 'propertyName'");
             }
 
-            var so = new SerializedObject(target.SerializedTarget);
+            var so = new SerializedObject(target.TargetObject);
             so.Update();
 
             var arrayProp = so.FindProperty(propertyName);
@@ -616,7 +616,7 @@ namespace AIBridge.Editor
                 return new SerializedTarget
                 {
                     Path = GetGameObjectPath(go),
-                    SerializedTarget = go
+                    TargetObject = go
                 };
             }
 
@@ -624,7 +624,7 @@ namespace AIBridge.Editor
             return new SerializedTarget
             {
                 Path = GetGameObjectPath(go),
-                SerializedTarget = component
+                TargetObject = component
             };
         }
 
@@ -780,38 +780,6 @@ namespace AIBridge.Editor
             return found;
         }
 
-        private static Type ResolveComponentType(string typeName)
-        {
-            var possibleNames = new[]
-            {
-                typeName,
-                "UnityEngine." + typeName,
-                "UnityEngine.UI." + typeName,
-                "TMPro." + typeName
-            };
-
-            for (var i = 0; i < possibleNames.Length; i++)
-            {
-                var componentType = Type.GetType(possibleNames[i]);
-                if (componentType != null)
-                {
-                    return componentType;
-                }
-
-                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-                for (var j = 0; j < assemblies.Length; j++)
-                {
-                    componentType = assemblies[j].GetType(possibleNames[i]);
-                    if (componentType != null)
-                    {
-                        return componentType;
-                    }
-                }
-            }
-
-            return null;
-        }
-
         private static void SetEnumValue(SerializedProperty prop, object value)
         {
             var text = value != null ? value.ToString() : string.Empty;
@@ -865,6 +833,23 @@ namespace AIBridge.Editor
 
         private static Color ReadColor(object value)
         {
+            var dictionary = value as IDictionary;
+            if (dictionary != null)
+            {
+                var r = GetValue(dictionary, "r");
+                var g = GetValue(dictionary, "g");
+                var b = GetValue(dictionary, "b");
+                if (r != null && g != null && b != null)
+                {
+                    var a = GetValue(dictionary, "a");
+                    return new Color(
+                        Convert.ToSingle(r, CultureInfo.InvariantCulture),
+                        Convert.ToSingle(g, CultureInfo.InvariantCulture),
+                        Convert.ToSingle(b, CultureInfo.InvariantCulture),
+                        a != null ? Convert.ToSingle(a, CultureInfo.InvariantCulture) : 1f);
+                }
+            }
+
             var values = ReadFloatArray(value, 4);
             return new Color(values[0], values[1], values[2], values[3]);
         }
@@ -1240,7 +1225,7 @@ namespace AIBridge.Editor
         private sealed class SerializedTarget
         {
             public string Path;
-            public UnityEngine.Object SerializedTarget;
+            public UnityEngine.Object TargetObject;
         }
 
         [Serializable]

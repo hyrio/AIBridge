@@ -3,6 +3,7 @@
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+AIBridgeCache/
 
 # Visual Studio
 .vs/
@@ -32,6 +33,7 @@ Thumbs.db
 # Unity specific
 [Ll]ibrary/
 [Tt]emp/
+[Tt]emp.meta
 [Bb]uild/
 [Bb]uilds/
 [Ss]tamp[Aa]ssembly[Vv]ersions/

@@ -7,7 +7,7 @@
 English | [中文](./README_CN.md)
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.2.3](https://img.shields.io/badge/Package-1.2.3-5b6cff?style=flat-square)
+![Package 1.2.4](https://img.shields.io/badge/Package-1.2.4-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
@@ -100,7 +100,11 @@ On macOS/Linux, use the bundled platform CLI or run the DLL with `dotnet` accord
 ./AIBridgeCache/CLI/AIBridgeCLI.exe selection get --includeComponents true
 ./AIBridgeCache/CLI/AIBridgeCLI.exe prefab get_info --prefabPath "Assets/Prefabs/Player.prefab"
 ./AIBridgeCache/CLI/AIBridgeCLI.exe prefab get_hierarchy --prefabPath "Assets/Prefabs/Player.prefab"
+./AIBridgeCache/CLI/AIBridgeCLI.exe prefab patch --prefabPath "Assets/Prefabs/Player.prefab" --ops "patch_ops.json"
+./AIBridgeCache/CLI/AIBridgeCLI.exe prefab patch --prefabPath "Assets/Prefabs/Player.prefab" --ops "patch_ops.json" --dryRun true
 ```
+
+For complex prefab edits, use the installed `aibridge-prefab-patch` skill, keep operations in a JSON file, and run dry-run first.
 
 ### Component Inspection And Editing
 

@@ -14,6 +14,7 @@ triggers: [unity, compile, gameobject, transform, component, serializedproperty,
 - For Unity assets, prefer `asset search/find --format paths`; use host file reads for file contents, and `asset read_text` only when host reads are unavailable.
 - For serialized edits, discover targets with `inspector get_components/get_properties/find_property`, then write with `inspector set_property/set_properties`; avoid raw YAML unless no Unity API path exists.
 - For prefab asset edits, use `assetPath + objectPath + componentName` or `componentIndex`; `componentInstanceId` is scene-only.
+- For complex prefab asset edits, use the `aibridge-prefab-patch` skill and prefer `prefab patch --ops <file>` with dry-run first.
 - In PowerShell, avoid inline complex `--json`; build JSON in a variable, escape embedded quotes for native EXE argument passing, and pass command parameters directly, especially `inspector set_properties --values $values`.
 - `focus` is Windows CLI-only, `screenshot` requires Play Mode, and `multi` is preferred for batch dispatch.
 - `multi --cmd` accepts plain CLI commands separated by `&` and automatically emits Batch `call` lines; `call`, `delay`, `log`, `menu`, and `#` comment lines are kept as native Batch script.
@@ -59,18 +60,9 @@ $CLI multi --cmd 'editor log --message Step1&gameobject create --name Cube --pri
 $CLI multi --stdin  # Read from stdin (one per line)
 ```
 
-PowerShell recommendations:
-```powershell
-$script = @'
-editor log --message "Step1"
-delay 1000
-get_logs --logType Error --count 1
-'@
-$script | & "./AIBridgeCache/CLI/AIBridgeCLI.exe" multi --stdin
+### `aibridge-prefab-patch` - Complex Prefab Asset Edits
 
-$values = (@{ 'm_LocalPosition.x' = 0; 'm_LocalPosition.y' = 0 } | ConvertTo-Json -Compress) -replace '"', '\"'
-& "./AIBridgeCache/CLI/AIBridgeCLI.exe" inspector set_properties --assetPath 'Assets/UI/LoginPanel.prefab' --objectPath 'Root/Button' --componentName RectTransform --values $values
-```
+Use the separate `aibridge-prefab-patch` skill for complex prefab changes that need child creation, component creation, internal references, arrays, or ReferenceCollector updates.
 
 <!-- AIBRIDGE:COMMANDS -->
 

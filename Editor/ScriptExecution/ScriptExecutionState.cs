@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Newtonsoft.Json;
+using AIBridge.Internal.Json;
 
 namespace AIBridge.Editor.ScriptExecution
 {
@@ -84,7 +84,7 @@ namespace AIBridge.Editor.ScriptExecution
                     Directory.CreateDirectory(directory);
                 }
 
-                var json = JsonConvert.SerializeObject(this, Formatting.Indented);
+                var json = AIBridgeJson.Serialize(this, pretty: true);
                 File.WriteAllText(StateFilePath, json);
             }
             catch (Exception ex)
@@ -106,8 +106,8 @@ namespace AIBridge.Editor.ScriptExecution
                 }
 
                 var json = File.ReadAllText(StateFilePath);
-                var state = JsonConvert.DeserializeObject<ScriptExecutionState>(json);
-                return state ?? new ScriptExecutionState();
+                var data = AIBridgeJson.DeserializeObject(json);
+                return FromDictionary(data);
             }
             catch (Exception ex)
             {
@@ -147,6 +147,91 @@ namespace AIBridge.Editor.ScriptExecution
             {
                 Logs.RemoveAt(0);
             }
+        }
+
+        private static ScriptExecutionState FromDictionary(Dictionary<string, object> data)
+        {
+            if (data == null)
+            {
+                return new ScriptExecutionState();
+            }
+
+            var state = new ScriptExecutionState
+            {
+                ScriptPath = GetString(data, nameof(ScriptPath)),
+                CurrentLine = GetInt(data, nameof(CurrentLine)),
+                Status = GetExecutionStatus(data, nameof(Status)),
+                StartTime = GetString(data, nameof(StartTime)),
+                EndTime = GetString(data, nameof(EndTime)),
+                Logs = GetStringList(data, nameof(Logs)),
+                ErrorMessage = GetString(data, nameof(ErrorMessage)),
+                PausedByCompilation = GetBool(data, nameof(PausedByCompilation)),
+                BatchRequestId = GetString(data, nameof(BatchRequestId)),
+                DeleteScriptAfterExecution = GetBool(data, nameof(DeleteScriptAfterExecution))
+            };
+
+            return state;
+        }
+
+        private static string GetString(Dictionary<string, object> data, string key)
+        {
+            object value;
+            return data.TryGetValue(key, out value) && value != null ? value.ToString() : null;
+        }
+
+        private static int GetInt(Dictionary<string, object> data, string key)
+        {
+            object value;
+            if (!data.TryGetValue(key, out value) || value == null)
+            {
+                return 0;
+            }
+
+            return Convert.ToInt32(value);
+        }
+
+        private static bool GetBool(Dictionary<string, object> data, string key)
+        {
+            object value;
+            if (!data.TryGetValue(key, out value) || value == null)
+            {
+                return false;
+            }
+
+            return Convert.ToBoolean(value);
+        }
+
+        private static ExecutionStatus GetExecutionStatus(Dictionary<string, object> data, string key)
+        {
+            var value = GetString(data, key);
+            ExecutionStatus status;
+            return Enum.TryParse(value, out status) ? status : ExecutionStatus.Idle;
+        }
+
+        private static List<string> GetStringList(Dictionary<string, object> data, string key)
+        {
+            object value;
+            if (!data.TryGetValue(key, out value) || value == null)
+            {
+                return new List<string>();
+            }
+
+            var result = new List<string>();
+            var values = value as IEnumerable<object>;
+            if (values == null)
+            {
+                return result;
+            }
+
+            foreach (var item in values)
+            {
+                if (item != null)
+                {
+                    result.Add(item.ToString());
+                }
+            }
+
+            return result;
         }
     }
 

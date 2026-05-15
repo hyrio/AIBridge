@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using AIBridgeCLI.Core;
 
 namespace AIBridgeCLI.Commands
@@ -42,6 +43,19 @@ namespace AIBridgeCLI.Commands
             }
 
             return request;
+        }
+
+        public override string GetHelp(string action = null)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"{Type}: {Description}");
+            sb.AppendLine();
+            sb.AppendLine("Parameters:");
+            sb.AppendLine("  --menuPath            (required) Full menu path (e.g., 'GameObject/Create Empty')");
+            sb.AppendLine();
+            sb.AppendLine($"Usage: AIBridgeCLI {Type} --menuPath \"GameObject/Create Empty\"");
+            sb.AppendLine($"       AIBridgeCLI {Type} invoke --menuPath \"GameObject/Create Empty\"");
+            return sb.ToString();
         }
     }
 }

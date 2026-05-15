@@ -31,5 +31,20 @@ namespace AIBridge.Editor
 
             return SkillDirectoryRelativePath.TrimEnd('/', '\\') + "/" + SkillFileName;
         }
+
+        public string GetSiblingSkillFileRelativePath(string skillDirectoryName)
+        {
+            if (!SupportsSkillDirectory || string.IsNullOrEmpty(SkillDirectoryRelativePath) || string.IsNullOrEmpty(SkillFileName))
+            {
+                return null;
+            }
+
+            var normalized = SkillDirectoryRelativePath.Replace('\\', '/').TrimEnd('/');
+            var separatorIndex = normalized.LastIndexOf('/');
+            var skillRoot = separatorIndex >= 0 ? normalized.Substring(0, separatorIndex) : string.Empty;
+            return string.IsNullOrEmpty(skillRoot)
+                ? skillDirectoryName + "/" + SkillFileName
+                : skillRoot + "/" + skillDirectoryName + "/" + SkillFileName;
+        }
     }
 }

@@ -282,7 +282,7 @@ $CLI compile dotnet [--solution MyGame.sln]  # Optional validation
                     var exitCode = process.ExitCode;
                     var success = exitCode == 0;
 
-                    return CommandResult.Success(request.id, new
+                    return CommandResult.Success(request.id, new DotnetBuildResult
                     {
                         action = "dotnet",
                         solution = solutionPath,
@@ -350,6 +350,22 @@ $CLI compile dotnet [--solution MyGame.sln]  # Optional validation
 
             var candidateList = string.Join(", ", candidates.Select(Path.GetFileName));
             return (false, null, $"Multiple solution files were found in project root: {candidateList}. Pass --solution explicitly.");
+        }
+
+        [Serializable]
+        private sealed class DotnetBuildResult
+        {
+            public string action;
+            public string solution;
+            public string configuration;
+            public int exitCode;
+            public bool success;
+            public int errorCount;
+            public int warningCount;
+            public double duration;
+            public List<object> errors;
+            public List<object> warnings;
+            public string output;
         }
 
         /// <summary>

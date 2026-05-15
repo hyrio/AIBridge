@@ -441,7 +441,7 @@ Avoid inline complex `--json` in PowerShell; build a JSON variable for `--values
                     return CommandResult.Failure(request.id, "Missing 'typeName' parameter");
                 }
 
-                var componentType = ResolveComponentType(typeName);
+                var componentType = ComponentTypeResolver.Resolve(typeName);
                 if (componentType == null)
                 {
                     return CommandResult.Failure(request.id, $"Component type not found: {typeName}");

@@ -355,35 +355,5 @@ namespace AIBridge.Editor
             return true;
         }
 
-        private static Type ResolveComponentType(string typeName)
-        {
-            var possibleNames = new[]
-            {
-                typeName,
-                $"UnityEngine.{typeName}",
-                $"UnityEngine.UI.{typeName}",
-                $"TMPro.{typeName}"
-            };
-
-            foreach (var name in possibleNames)
-            {
-                var componentType = System.Type.GetType(name);
-                if (componentType != null)
-                {
-                    return componentType;
-                }
-
-                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    componentType = assembly.GetType(name);
-                    if (componentType != null)
-                    {
-                        return componentType;
-                    }
-                }
-            }
-
-            return null;
-        }
     }
 }
