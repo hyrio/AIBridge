@@ -34,7 +34,8 @@ Most Unity-side commands require an `action` such as `asset search` or `inspecto
 
 - Use `compile unity` for Unity validation. `compile dotnet` is an explicit extra solution-build check, not a fallback.
 - For Unity assets, prefer `asset search/find --format paths`; use host file reads for file contents, and `asset read_text` only when host reads are unavailable.
-- For serialized edits, discover targets with `inspector get_components/get_properties/find_property`, then write with `inspector set_property/set_properties`; avoid raw YAML unless no Unity API path exists.
+- For scene objects, Prefabs, and complex serialized Unity assets, discover targets with `inspector get_components/get_properties/find_property`, then write with `inspector set_property/set_properties`; avoid raw YAML for Scene/Prefab assets unless no Unity API path exists.
+- Direct YAML edits are acceptable for simple ScriptableObject `.asset` config files only when fields are clear and the diff is easy to review. Preserve `m_Script`, `fileID/guid/type` references, and YAML indentation; validate afterward with `compile unity` or a relevant CLI check.
 - For prefab asset edits, use `assetPath + objectPath + componentName` or `componentIndex`; `componentInstanceId` is scene-only.
 - For complex prefab asset edits, use the `aibridge-prefab-patch` skill and prefer `prefab patch --ops <file>` with dry-run first.
 - In PowerShell, avoid inline complex `--json`; build JSON in a variable, escape embedded quotes for native EXE argument passing, and pass command parameters directly, especially `inspector set_properties --values $values`.
