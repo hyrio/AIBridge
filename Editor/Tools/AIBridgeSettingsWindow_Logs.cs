@@ -37,7 +37,7 @@ namespace AIBridge.Editor
             _logTypeIndex = GetLogTypeIndex(settings.LogType);
 
             EditorGUI.BeginChangeCheck();
-            _logTypeIndex = EditorGUILayout.Popup("默认日志级别", _logTypeIndex, AIBridgeProjectSettings.SupportedLogRetrievalTypes);
+            _logTypeIndex = EditorGUILayout.Popup("默认最低日志等级", _logTypeIndex, AIBridgeProjectSettings.SupportedLogRetrievalTypeLabels);
             _logRetrievalCount = EditorGUILayout.IntSlider("默认获取数量", _logRetrievalCount, MinLogRetrievalCount, MaxLogRetrievalCount);
 
             if (EditorGUI.EndChangeCheck())
@@ -46,7 +46,7 @@ namespace AIBridge.Editor
             }
 
             EditorGUILayout.HelpBox(
-                "当 CLI 未显式传入 --logType 或 --count 时，get_logs 会使用这里的默认值。",
+                "这里按最低等级筛选：Info 及以上包含 Info、Warning、Error；Warning 及以上包含 Warning、Error；Error 只包含 Error。CLI 显式传入 --logType 时仍按指定类型精确筛选。",
                 MessageType.Info);
         }
 
@@ -159,9 +159,8 @@ namespace AIBridge.Editor
 
         private string BuildLogRetrievalCliExample()
         {
-            var logType = GetSelectedLogType();
             var count = Mathf.Clamp(_logRetrievalCount, MinLogRetrievalCount, MaxLogRetrievalCount);
-            return "./.aibridge/cli/AIBridgeCLI.exe get_logs --logType " + logType + " --count " + count;
+            return "./.aibridge/cli/AIBridgeCLI.exe get_logs --count " + count;
         }
 
         private string GetSelectedLogType()

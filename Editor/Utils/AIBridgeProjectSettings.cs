@@ -56,6 +56,7 @@ namespace AIBridge.Editor
         public const string DefaultLogRetrievalType = "all";
         public const string DefaultScriptDirectory = "Assets/AIBridgeScripts";
         public static readonly string[] SupportedLogRetrievalTypes = { "all", "Log", "Warning", "Error" };
+        public static readonly string[] SupportedLogRetrievalTypeLabels = { "全部", "Info 及以上", "Warning 及以上", "Error" };
 
         [SerializeField] private int dataVersion = CurrentDataVersion;
         [SerializeField] private bool bridgeEnabled = true;
