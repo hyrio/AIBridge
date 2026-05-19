@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using AIBridge.Editor.ScriptExecution;
@@ -206,11 +204,7 @@ namespace AIBridge.Editor
             EditorGUILayout.TextField("Bridge Directory", AIBridge.BridgeDirectory);
             if (GUILayout.Button("Open", GUILayout.Width(60)))
             {
-                if (!Directory.Exists(AIBridge.BridgeDirectory))
-                {
-                    Directory.CreateDirectory(AIBridge.BridgeDirectory);
-                }
-                EditorUtility.RevealInFinder(AIBridge.BridgeDirectory);
+                AIBridge.OpenBridgeDirectory();
             }
             EditorGUILayout.EndHorizontal();
 
