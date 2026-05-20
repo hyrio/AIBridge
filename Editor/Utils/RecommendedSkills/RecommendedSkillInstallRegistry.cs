@@ -66,6 +66,27 @@ namespace AIBridge.Editor
                 string.Equals(record.Name, skillName, StringComparison.OrdinalIgnoreCase));
         }
 
+        public static bool Remove(string projectRoot, string skillName)
+        {
+            var records = Load(projectRoot);
+            var removed = false;
+            for (var i = records.Records.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(records.Records[i].Name, skillName, StringComparison.OrdinalIgnoreCase))
+                {
+                    records.Records.RemoveAt(i);
+                    removed = true;
+                }
+            }
+
+            if (removed)
+            {
+                Save(projectRoot, records);
+            }
+
+            return removed;
+        }
+
         private static string GetRegistryPath(string projectRoot)
         {
             return Path.Combine(projectRoot, InstalledRegistryRelativePath.Replace('/', Path.DirectorySeparatorChar));

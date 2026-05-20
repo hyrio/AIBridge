@@ -88,6 +88,12 @@ namespace AIBridge.Editor
             {
                 InstallRecommendedSkill(repository, skill);
             }
+
+            if (skill.InstallState != RecommendedSkillInstallState.NotInstalled
+                && GUILayout.Button(AIBridgeEditorText.T("Remove", "移除"), GUILayout.Width(96)))
+            {
+                RemoveRecommendedSkill(repository, skill);
+            }
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.EndVertical();
         }
@@ -138,6 +144,36 @@ namespace AIBridge.Editor
                 result.Success
                     ? AIBridgeEditorText.T("Install Complete", "安装成功")
                     : AIBridgeEditorText.T("Install Failed", "安装失败"),
+                result.Success
+                    ? result.Message + "\n" + result.InstalledDirectory
+                    : result.Message,
+                AIBridgeEditorText.T("OK", "确定"));
+        }
+
+        private void RemoveRecommendedSkill(RecommendedSkillRepository repository, RecommendedSkillInfo skill)
+        {
+            var targetDirectory = Path.Combine(GetProjectRoot(), AIBridgeProjectSettings.Instance.SkillRootDirectory, skill.Name);
+            if (!EditorUtility.DisplayDialog(
+                AIBridgeEditorText.T("Confirm Remove", "确认移除"),
+                AIBridgeEditorText.T(
+                    "Remove this installed Skill?\n\n" + targetDirectory,
+                    "是否移除这个已安装 Skill？\n\n" + targetDirectory),
+                AIBridgeEditorText.T("Remove", "移除"),
+                AIBridgeEditorText.T("Cancel", "取消")))
+            {
+                return;
+            }
+
+            var result = RecommendedSkillInstaller.Remove(GetProjectRoot(), skill);
+            if (result.Success)
+            {
+                RefreshRecommendedSkillList(repository);
+            }
+
+            EditorUtility.DisplayDialog(
+                result.Success
+                    ? AIBridgeEditorText.T("Remove Complete", "移除成功")
+                    : AIBridgeEditorText.T("Remove Failed", "移除失败"),
                 result.Success
                     ? result.Message + "\n" + result.InstalledDirectory
                     : result.Message,

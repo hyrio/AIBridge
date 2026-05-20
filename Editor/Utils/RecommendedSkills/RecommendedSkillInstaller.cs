@@ -90,6 +90,52 @@ namespace AIBridge.Editor
             }
         }
 
+        public static RecommendedSkillInstallResult Remove(string projectRoot, RecommendedSkillInfo skill)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(skill.Name) || skill.Name.Contains("/") || skill.Name.Contains("\\") || skill.Name.Contains(".."))
+                {
+                    return new RecommendedSkillInstallResult
+                    {
+                        Success = false,
+                        Message = AIBridgeEditorText.T("Invalid skill name.", "Skill 名称无效。")
+                    };
+                }
+
+                var targetDirectory = Path.Combine(projectRoot, AIBridgeProjectSettings.Instance.SkillRootDirectory, skill.Name);
+                if (!IsInsideDirectory(Path.Combine(projectRoot, AIBridgeProjectSettings.Instance.SkillRootDirectory), targetDirectory))
+                {
+                    return new RecommendedSkillInstallResult
+                    {
+                        Success = false,
+                        Message = AIBridgeEditorText.T("Invalid install path.", "安装路径无效。")
+                    };
+                }
+
+                if (Directory.Exists(targetDirectory))
+                {
+                    Directory.Delete(targetDirectory, true);
+                }
+
+                RecommendedSkillInstallRegistry.Remove(projectRoot, skill.Name);
+                return new RecommendedSkillInstallResult
+                {
+                    Success = true,
+                    InstalledDirectory = targetDirectory,
+                    Message = AIBridgeEditorText.T("Skill removed.", "Skill 已移除。")
+                };
+            }
+            catch (Exception ex)
+            {
+                return new RecommendedSkillInstallResult
+                {
+                    Success = false,
+                    Message = ex.Message
+                };
+            }
+        }
+
         public static void ApplyInstallStates(string projectRoot, IEnumerable<RecommendedSkillInfo> skills)
         {
             foreach (var skill in skills)

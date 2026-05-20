@@ -190,5 +190,29 @@ namespace AIBridge.Editor.Tests
             var codexPluginJson = File.ReadAllText(Path.Combine(_projectRoot, "plugins", "aibridge-skills", ".codex-plugin", "plugin.json"));
             StringAssert.Contains("\"skills\": \"./../../.skill/\"", codexPluginJson);
         }
+
+        [Test]
+        public void RecommendedSkillRemoveDeletesDirectoryAndInstallRecord()
+        {
+            var skillDirectory = Path.Combine(_projectRoot, ".skills", "tdd");
+            Directory.CreateDirectory(skillDirectory);
+            File.WriteAllText(Path.Combine(skillDirectory, "SKILL.md"), "---\nname: tdd\n---\n# TDD");
+            RecommendedSkillInstallRegistry.Upsert(_projectRoot, new InstalledSkillRecord
+            {
+                Name = "tdd",
+                RepositoryId = "test",
+                RepositoryUrl = "https://example.com/repo.git",
+                SourceRelativePath = "skills/tdd",
+                BranchOrTag = "main",
+                Commit = "abc123",
+                InstalledAtUtcTicks = 1
+            });
+
+            var result = RecommendedSkillInstaller.Remove(_projectRoot, new RecommendedSkillInfo { Name = "tdd" });
+
+            Assert.IsTrue(result.Success);
+            Assert.IsFalse(Directory.Exists(skillDirectory));
+            Assert.IsNull(RecommendedSkillInstallRegistry.Find(_projectRoot, "tdd"));
+        }
     }
 }
