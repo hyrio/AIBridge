@@ -37,10 +37,10 @@ namespace AIBridge.Editor.Tests
             Directory.CreateDirectory(Path.Combine(_projectRoot, ".agents"));
             var target = CreateTarget("codex", ".codex/skills/aibridge");
 
-            Assert.AreEqual("skills", target.GetResolvedSkillRootDirectoryRelativePath(_projectRoot));
-            Assert.AreEqual("skills/aibridge", target.GetResolvedSkillDirectoryRelativePath(_projectRoot));
-            Assert.AreEqual("skills/aibridge/SKILL.md", target.GetResolvedSkillFileRelativePath(_projectRoot));
-            Assert.AreEqual("skills/aibridge-prefab-patch/SKILL.md", target.GetResolvedSiblingSkillFileRelativePath(_projectRoot, "aibridge-prefab-patch"));
+            Assert.AreEqual(".skills", target.GetResolvedSkillRootDirectoryRelativePath(_projectRoot));
+            Assert.AreEqual(".skills/aibridge", target.GetResolvedSkillDirectoryRelativePath(_projectRoot));
+            Assert.AreEqual(".skills/aibridge/SKILL.md", target.GetResolvedSkillFileRelativePath(_projectRoot));
+            Assert.AreEqual(".skills/aibridge-prefab-patch/SKILL.md", target.GetResolvedSiblingSkillFileRelativePath(_projectRoot, "aibridge-prefab-patch"));
         }
 
         [Test]
@@ -48,8 +48,8 @@ namespace AIBridge.Editor.Tests
         {
             var target = CreateTarget("codex", ".codex/skills/aibridge");
 
-            Assert.AreEqual("skills", target.GetResolvedSkillRootDirectoryRelativePath(_projectRoot));
-            Assert.AreEqual("skills/aibridge", target.GetResolvedSkillDirectoryRelativePath(_projectRoot));
+            Assert.AreEqual(".skills", target.GetResolvedSkillRootDirectoryRelativePath(_projectRoot));
+            Assert.AreEqual(".skills/aibridge", target.GetResolvedSkillDirectoryRelativePath(_projectRoot));
         }
 
         [Test]
@@ -59,9 +59,9 @@ namespace AIBridge.Editor.Tests
             AIBridgeProjectSettings.Instance.SetAssistantSkillRootDirectory("codex", ".legacy-skills");
             var target = CreateTarget("codex", ".codex/skills/aibridge");
 
-            Assert.AreEqual("skills", target.GetResolvedSkillRootDirectoryRelativePath(_projectRoot));
-            Assert.AreEqual("skills/aibridge", target.GetResolvedSkillDirectoryRelativePath(_projectRoot));
-            Assert.AreEqual("skills/aibridge-prefab-patch/SKILL.md", target.GetResolvedSiblingSkillFileRelativePath(_projectRoot, "aibridge-prefab-patch"));
+            Assert.AreEqual(".skills", target.GetResolvedSkillRootDirectoryRelativePath(_projectRoot));
+            Assert.AreEqual(".skills/aibridge", target.GetResolvedSkillDirectoryRelativePath(_projectRoot));
+            Assert.AreEqual(".skills/aibridge-prefab-patch/SKILL.md", target.GetResolvedSiblingSkillFileRelativePath(_projectRoot, "aibridge-prefab-patch"));
         }
 
         [Test]
@@ -81,8 +81,8 @@ namespace AIBridge.Editor.Tests
             Directory.CreateDirectory(Path.Combine(_projectRoot, ".agents"));
             var target = CreateTarget("claude", ".claude/skills/aibridge");
 
-            Assert.AreEqual("skills", target.GetResolvedSkillRootDirectoryRelativePath(_projectRoot));
-            Assert.AreEqual("skills/aibridge", target.GetResolvedSkillDirectoryRelativePath(_projectRoot));
+            Assert.AreEqual(".skills", target.GetResolvedSkillRootDirectoryRelativePath(_projectRoot));
+            Assert.AreEqual(".skills/aibridge", target.GetResolvedSkillDirectoryRelativePath(_projectRoot));
         }
 
         private static AssistantIntegrationTarget CreateTarget(string id, string skillDirectoryRelativePath)

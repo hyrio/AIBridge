@@ -56,7 +56,7 @@ namespace AIBridge.Editor
 
         public const int CurrentDataVersion = 6;
         public const string DefaultEditorLanguage = "English";
-        public const string DefaultSkillRootDirectory = "skills";
+        public const string DefaultSkillRootDirectory = ".skills";
         public const int DefaultGifFrameCount = 50;
         public const int DefaultGifFps = 20;
         public const float DefaultGifScale = 0.5f;

@@ -14,8 +14,8 @@ namespace AIBridge.Editor
             EditorGUILayout.LabelField(AIBridgeEditorText.T("Recommended Skill Library", "推荐 Skill 库"), EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 AIBridgeEditorText.T(
-                    "Install third-party skills into the project-root skills directory. Review third-party skill content before use.",
-                    "将第三方 Skill 安装到项目根目录 skills。使用前请自行确认第三方 Skill 内容。"),
+                    "Install third-party skills into the shared project Skill directory. Review third-party skill content before use.",
+                    "将第三方 Skill 安装到项目共享 Skill 目录。使用前请自行确认第三方 Skill 内容。"),
                 MessageType.Info);
 
             EditorGUILayout.LabelField(

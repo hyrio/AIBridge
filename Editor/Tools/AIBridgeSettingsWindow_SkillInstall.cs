@@ -16,7 +16,7 @@ namespace AIBridge.Editor
             EditorGUILayout.HelpBox(
                 AIBridgeEditorText.T(
                     "Select which supported AI tools should receive AIBridge skill installation. Detected tools are selected by default on first use.",
-                    "选择要安装 AIBridge Skill 适配层的 AI 工具。AIBridge Skill 默认统一安装到项目根目录 skills。首次使用时会默认勾选已检测到的工具。"),
+                    "选择要安装 AIBridge Skill 适配层的 AI 工具。AIBridge Skill 默认统一安装到项目根目录 .skills。首次使用时会默认勾选已检测到的工具。"),
                 MessageType.Info);
 
             // 自动安装开关
@@ -138,8 +138,8 @@ namespace AIBridge.Editor
             EditorGUILayout.LabelField(AIBridgeEditorText.T("Shared Skills Directory", "共享 Skills 目录"), EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 AIBridgeEditorText.T(
-                    "AIBridge and recommended third-party Skills are installed here. Use a project-relative path, for example skills or .skill.",
-                    "AIBridge 和推荐第三方 Skill 都会安装到这里。请输入项目内相对路径，例如 skills 或 .skill。"),
+                    "AIBridge and recommended third-party Skills are installed here. Use a project-relative path, for example .skills or .skill.",
+                    "AIBridge 和推荐第三方 Skill 都会安装到这里。请输入项目内相对路径，例如 .skills 或 .skill。"),
                 MessageType.None);
 
             EditorGUILayout.BeginHorizontal();
