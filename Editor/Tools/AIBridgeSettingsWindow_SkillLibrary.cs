@@ -22,22 +22,22 @@ namespace AIBridge.Editor
                 AIBridgeEditorText.T("Install Root: ", "安装根目录：") + AIBridgeProjectSettings.Instance.SkillRootDirectory,
                 EditorStyles.miniLabel);
 
-            var repositoryNames = repositories.Select(repository => repository.DisplayName).ToArray();
+            var repositoryNames = repositories.Select(item => item.DisplayName).ToArray();
             _selectedRecommendedRepositoryIndex = Mathf.Clamp(_selectedRecommendedRepositoryIndex, 0, repositoryNames.Length - 1);
             _selectedRecommendedRepositoryIndex = EditorGUILayout.Popup(
                 AIBridgeEditorText.T("Repository", "仓库"),
                 _selectedRecommendedRepositoryIndex,
                 repositoryNames);
 
-            var repository = repositories[_selectedRecommendedRepositoryIndex];
-            EditorGUILayout.LabelField(repository.RepositoryUrl + "#" + repository.BranchOrTag, EditorStyles.miniLabel);
-            EditorGUILayout.LabelField(repository.Description, EditorStyles.wordWrappedMiniLabel);
+            var selectedRepository = repositories[_selectedRecommendedRepositoryIndex];
+            EditorGUILayout.LabelField(selectedRepository.RepositoryUrl + "#" + selectedRepository.BranchOrTag, EditorStyles.miniLabel);
+            EditorGUILayout.LabelField(selectedRepository.Description, EditorStyles.wordWrappedMiniLabel);
 
             EditorGUILayout.Space(5);
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(AIBridgeEditorText.T("Refresh Skill List", "刷新 Skill 列表"), GUILayout.Height(28)))
             {
-                RefreshRecommendedSkillList(repository);
+                RefreshRecommendedSkillList(selectedRepository);
             }
 
             if (GUILayout.Button(AIBridgeEditorText.T("Open Install Root", "打开安装目录"), GUILayout.Height(28)))
@@ -59,7 +59,7 @@ namespace AIBridge.Editor
 
             foreach (var skill in _recommendedSkills)
             {
-                DrawRecommendedSkillItem(repository, skill);
+                DrawRecommendedSkillItem(selectedRepository, skill);
             }
         }
 
