@@ -91,6 +91,7 @@ namespace AIBridge.Editor
                     return;
                 }
 
+                CleanupUnselectedTargets(projectRoot, targets);
                 CopyCliToCacheIfNeeded(projectRoot);
                 var results = InstallAssistantIntegrations(projectRoot, targets);
                 SkillPluginAdapter.GenerateForTargets(projectRoot, targets);
@@ -556,50 +557,41 @@ namespace AIBridge.Editor
         {
             var cliExeName = GetCliExecutableName();
             var language = AIBridgeProjectSettings.Instance.EditorLanguage;
-            var skillDocPath = target.SupportsSkillDirectory
-                ? "/" + target.GetResolvedSkillFileRelativePath(projectRoot)
-                : "/Packages/" + PACKAGE_NAME + "/Skill~/" + SKILL_FILE_NAME;
-            var prefabPatchSkillDocPath = target.SupportsSkillDirectory
-                ? "/" + target.GetResolvedSiblingSkillFileRelativePath(projectRoot, "aibridge-prefab-patch")
-                : "/Packages/" + PACKAGE_NAME + "/Skill~/aibridge-prefab-patch/" + SKILL_FILE_NAME;
-            var workflowSkillDocPath = target.SupportsSkillDirectory
-                ? "/" + target.GetResolvedSiblingSkillFileRelativePath(projectRoot, "aibridge-development-workflow")
-                : "/Packages/" + PACKAGE_NAME + "/Skill~/aibridge-development-workflow/" + SKILL_FILE_NAME;
-            var batchScriptSkillDocPath = target.SupportsSkillDirectory
-                ? "/" + target.GetResolvedSiblingSkillFileRelativePath(projectRoot, "aibridge-batch-script")
-                : "/Packages/" + PACKAGE_NAME + "/Skill~/aibridge-batch-script/" + SKILL_FILE_NAME;
+            var workflowSkillDocPath = GetSkillDocumentPath(projectRoot, target, "aibridge-development-workflow");
+            var skillRootPath = GetSkillRootDocumentPath(projectRoot, target);
             return new Dictionary<string, string>
             {
                 { "CLI_PATH", "./" + CLI_CACHE_FOLDER + "/" + cliExeName },
-                { "CLI_EXE_NAME", cliExeName },
-                { "CLI_CACHE_DIR", CLI_CACHE_FOLDER },
-                { "SKILL_DOC_PATH", skillDocPath },
-                { "PREFAB_PATCH_SKILL_DOC_PATH", prefabPatchSkillDocPath },
-                { "WORKFLOW_SKILL_DOC_PATH", workflowSkillDocPath },
-                { "BATCH_SCRIPT_SKILL_DOC_PATH", batchScriptSkillDocPath },
-                { "SKILL_INDEX", BuildSkillIndex(language, workflowSkillDocPath, skillDocPath, prefabPatchSkillDocPath, batchScriptSkillDocPath) },
                 { "COMMON_COMMANDS_TITLE", AIBridgeEditorText.For(language, "Common Commands", "常用命令") },
                 { "ROUTING_TITLE", AIBridgeEditorText.For(language, "Routing Rules", "路由原则") },
                 { "QUICK_TASK_RULE", AIBridgeEditorText.For(language, "Quick tasks: answer or execute directly for pure Q&A, code explanation, search/display, or tasks with no code or asset changes.", "快速任务：纯问答、代码解释、查找、显示、无代码或资源修改，直接回答或执行。") },
                 { "DEVELOPMENT_TASK_RULE", AIBridgeEditorText.For(language, "Development tasks: creating, modifying, fixing, refactoring C# code, Unity assets, Prefabs, Editor tools, package structure, tests, AGENTS.md, or Skills must load `aibridge-development-workflow` first.", "开发任务：创建、修改、修复、重构 C# 代码、Unity 资源、Prefab、Editor 工具、包结构、测试、AGENTS.md 或 Skills，必须优先加载 `aibridge-development-workflow`。") },
                 { "WORKFLOW_SKILL_RULE", AIBridgeEditorText.For(language, "After entering the standard development workflow, `aibridge-development-workflow` decides whether to load additional Skills in Skills matching mode.", "进入标准开发工作流后，由 `aibridge-development-workflow` 在 `【Skills 匹配模式】` 决定是否继续加载其它 Skill。") },
-                { "SKILL_INDEX_TITLE", AIBridgeEditorText.For(language, "Skill Index", "Skill 索引") },
-                { "PROJECT_ROOT_RULE_FILE", target.RootRuleFileName },
-                { "ASSISTANT_NAME", target.DisplayName },
-                { "PROJECT_ROOT", projectRoot }
+                { "SKILL_LOADING_TITLE", AIBridgeEditorText.For(language, "Skill Loading", "Skill 加载") },
+                { "WORKFLOW_SKILL_ENTRY", AIBridgeEditorText.For(language, "Load `aibridge-development-workflow` from `" + workflowSkillDocPath + "` before development tasks.", "开发任务先加载 `" + workflowSkillDocPath + "` 中的 `aibridge-development-workflow`。") },
+                { "SKILL_ROOT_RULE", AIBridgeEditorText.For(language, "AIBridge Skills are installed under `" + skillRootPath + "/<skill-name>/SKILL.md`; load sibling Skills from that directory only when the workflow requires them.", "AIBridge Skills 安装在 `" + skillRootPath + "/<skill-name>/SKILL.md`；仅在工作流要求时从该目录加载同级 Skill。") }
             };
         }
 
-        private static string BuildSkillIndex(AIBridgeEditorLanguage language, string workflowSkillDocPath, string skillDocPath, string prefabPatchSkillDocPath, string batchScriptSkillDocPath)
+        private static string GetSkillDocumentPath(string projectRoot, AssistantIntegrationTarget target, string skillName)
         {
-            var builder = new StringBuilder();
-            builder.AppendLine(AIBridgeEditorText.For(language, "| Skill | Keywords | Document |", "| Skill | 匹配关键词 | 文档 |"));
-            builder.AppendLine("|---|---|---|");
-            builder.AppendLine("| `aibridge-development-workflow` | " + AIBridgeEditorText.For(language, "develop, modify, fix, refactor, validate, test, AGENTS, Skill, Editor tools, package structure, Unity assets", "开发、修改、修复、重构、验证、测试、AGENTS、Skill、Editor 工具、包结构、Unity 资源") + " | `" + workflowSkillDocPath + "` |");
-            builder.AppendLine("| `aibridge` | " + AIBridgeEditorText.For(language, "CLI, compile, logs, Console, asset, scene, gameobject, inspector, selection, transform, screenshot, test, focus", "CLI、编译、日志、Console、asset、scene、gameobject、inspector、selection、transform、screenshot、test、focus") + " | `" + skillDocPath + "` |");
-            builder.AppendLine("| `aibridge-prefab-patch` | " + AIBridgeEditorText.For(language, "complex Prefab, prefab patch, dryRun, batch SerializedProperty, ensure_child, ensure_component, arrays, reference writes", "复杂 Prefab、prefab patch、dryRun、批量 SerializedProperty、ensure_child、ensure_component、数组、引用写入") + " | `" + prefabPatchSkillDocPath + "` |");
-            builder.AppendLine("| `aibridge-batch-script` | " + AIBridgeEditorText.For(language, "batch, multi, batch processing, script automation, stdin, delay, call, menu, long scripts", "batch、multi、批处理、脚本自动化、stdin、delay、call、menu、长脚本") + " | `" + batchScriptSkillDocPath + "` |");
-            return builder.ToString().TrimEnd();
+            return target.SupportsSkillDirectory
+                ? "/" + target.GetResolvedSiblingSkillFileRelativePath(projectRoot, skillName)
+                : "/Packages/" + PACKAGE_NAME + "/Skill~/" + skillName + "/" + SKILL_FILE_NAME;
+        }
+
+        private static string GetSkillRootDocumentPath(string projectRoot, AssistantIntegrationTarget target)
+        {
+            if (target.SupportsSkillDirectory)
+            {
+                var skillRoot = target.GetResolvedSkillRootDirectoryRelativePath(projectRoot);
+                if (!string.IsNullOrEmpty(skillRoot))
+                {
+                    return "/" + skillRoot.Replace('\\', '/').Trim('/');
+                }
+            }
+
+            return "/Packages/" + PACKAGE_NAME + "/Skill~";
         }
 
         private static List<AssistantIntegrationTarget> GetSelectedTargets(string projectRoot)
@@ -607,6 +599,11 @@ namespace AIBridge.Editor
             var allTargets = AssistantIntegrationRegistry.GetTargets();
             var selections = AssistantIntegrationSelectionSettings.LoadSelections(projectRoot, allTargets);
             return allTargets.Where(target => selections.TryGetValue(target.Id, out var selected) && selected).ToList();
+        }
+
+        internal static List<AssistantIntegrationTarget> GetSelectedTargetsForPluginGeneration(string projectRoot)
+        {
+            return GetSelectedTargets(projectRoot);
         }
 
         private static List<AssistantIntegrationTarget> GetTargetsByIds(IEnumerable<string> targetIds)
@@ -705,6 +702,8 @@ namespace AIBridge.Editor
                     AIBridgeLogger.LogWarning($"[SkillInstaller] Failed to cleanup {target.DisplayName}: {ex.Message}");
                 }
             }
+
+            SkillPluginAdapter.CleanupForTargets(projectRoot, allTargets.Where(target => !selectedIds.Contains(target.Id)));
         }
 
         private static void CleanupSkillDirectoriesForTarget(string projectRoot, AssistantIntegrationTarget target)
@@ -815,6 +814,7 @@ namespace AIBridge.Editor
                     AssistantIntegrationSelectionSettings.SetSelected(target.Id, selectedIds.Contains(target.Id));
                 }
 
+                CleanupUnselectedTargets(projectRoot, targets);
                 CopyCliToCacheIfNeeded(projectRoot);
                 var results = InstallAssistantIntegrations(projectRoot, targets);
                 SkillPluginAdapter.GenerateForTargets(projectRoot, targets);

@@ -52,7 +52,7 @@ You can also clone this repository into a Unity project's `Packages` folder.
 4. Click `Install Selected Integrations`.
 5. Optionally click `Install Unity Project AGENTS.md Template` to create a root `AGENTS.md`.
 
-Installed AIBridge Skills are written to the project-root `.skills/` directory by default. You can change that shared directory in the Skills Installation tab, for example to `.skill`. Each AI tool only receives its own RootRule or plugin adapter. Integrations include the fixed CLI path, Skill routing rules, Unity compile checks, Console diagnostics, C# compatibility rules, and workflow checklists. Command references are generated under each installed Skill's `references/` directory.
+Installed AIBridge Skills are written to the project-root `.skills/` directory by default. You can change that shared directory in the Skills Installation tab, for example to `.skill`. Each AI tool only receives a minimal RootRule or plugin adapter. The RootRule only includes the fixed CLI path, common commands, shared Skill root, and `aibridge-development-workflow` entry point; full routing and checklists live in the workflow Skill. Command references are generated under each installed Skill's `references/` directory.
 
 You can also open the `Recommended Skill Library` tab, refresh the default `obra/superpowers` repository, and install third-party Skills into the same shared root.
 
@@ -140,7 +140,7 @@ $CLI prefab get_hierarchy --prefabPath "Assets/Prefabs/Player.prefab" --includeC
 $CLI prefab patch --prefabPath "Assets/Prefabs/Player.prefab" --ops ".aibridge/patch_ops/player_patch.json" --dryRun true
 ```
 
-For simple prefab field edits, use `inspector set_property` with `assetPath + objectPath + componentName`. For multi-step prefab edits, use `prefab patch --ops <file>` and run `--dryRun true` first.
+For simple prefab field edits, use `inspector set_property` with `assetPath + objectPath + componentName`. For multi-step prefab edits, use `prefab patch --ops <file>` and run `--dryRun true` first. For unsupported Prefab, Scene, ScriptableObjectTable, or custom `.asset` structural edits, use `unity-yaml-editing` as the direct YAML fallback.
 
 PowerShell JSON tip:
 

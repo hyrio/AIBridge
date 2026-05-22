@@ -16,10 +16,9 @@ namespace AIBridge.Editor
         public string RootRuleFileName { get; set; }
         public string SkillDirectoryRelativePath { get; set; }
         public string SkillFileName { get; set; }
+        public string[] DetectionDirectoryRelativePaths { get; set; }
         public string RootRuleTemplateRelativePath { get; set; }
         public MissingRootRuleStrategy MissingRootRuleStrategy { get; set; }
-        public string TemplateId { get; set; }
-        public string RuleTarget { get; set; }
 
         public string GetSkillFileRelativePath()
         {

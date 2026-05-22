@@ -10,6 +10,8 @@ namespace AIBridge.Editor
     /// </summary>
     internal static class AssistantIntegrationRegistry
     {
+        private const string SharedRootRuleTemplateRelativePath = "Templates~/Rules/AIBridge.RootRule.md";
+
         public static IReadOnlyList<AssistantIntegrationTarget> GetTargets()
         {
             return new[]
@@ -22,10 +24,9 @@ namespace AIBridge.Editor
                     RootRuleFileName = "CLAUDE.md",
                     SkillDirectoryRelativePath = ".claude/skills/aibridge",
                     SkillFileName = "SKILL.md",
-                    RootRuleTemplateRelativePath = "Templates~/Rules/Claude.RootRule.md",
-                    MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock,
-                    TemplateId = "unity-integration",
-                    RuleTarget = "root-rule"
+                    DetectionDirectoryRelativePaths = new[] { ".claude", ".claude-plugin" },
+                    RootRuleTemplateRelativePath = SharedRootRuleTemplateRelativePath,
+                    MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock
                 },
                 new AssistantIntegrationTarget
                 {
@@ -35,10 +36,9 @@ namespace AIBridge.Editor
                     RootRuleFileName = "AGENTS.md",
                     SkillDirectoryRelativePath = ".codex/skills/aibridge",
                     SkillFileName = "SKILL.md",
-                    RootRuleTemplateRelativePath = "Templates~/Rules/Codex.RootRule.md",
-                    MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock,
-                    TemplateId = "unity-project-rules",
-                    RuleTarget = "root-rule"
+                    DetectionDirectoryRelativePaths = new[] { ".agents", ".codex" },
+                    RootRuleTemplateRelativePath = SharedRootRuleTemplateRelativePath,
+                    MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock
                 },
                 new AssistantIntegrationTarget
                 {
@@ -48,10 +48,9 @@ namespace AIBridge.Editor
                     RootRuleFileName = ".cursor/rules/aibridge.mdc",
                     SkillDirectoryRelativePath = ".cursor/skills/aibridge",
                     SkillFileName = "SKILL.md",
-                    RootRuleTemplateRelativePath = "Templates~/Rules/Cursor.RootRule.md",
-                    MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock,
-                    TemplateId = "unity-project-rules",
-                    RuleTarget = "root-rule"
+                    DetectionDirectoryRelativePaths = new[] { ".cursor" },
+                    RootRuleTemplateRelativePath = SharedRootRuleTemplateRelativePath,
+                    MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock
                 },
                 new AssistantIntegrationTarget
                 {
@@ -61,10 +60,9 @@ namespace AIBridge.Editor
                     RootRuleFileName = ".clinerules/aibridge.md",
                     SkillDirectoryRelativePath = ".clinerules/skills/aibridge",
                     SkillFileName = "SKILL.md",
-                    RootRuleTemplateRelativePath = "Templates~/Rules/Cline.RootRule.md",
-                    MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock,
-                    TemplateId = "unity-project-rules",
-                    RuleTarget = "root-rule"
+                    DetectionDirectoryRelativePaths = new[] { ".clinerules" },
+                    RootRuleTemplateRelativePath = SharedRootRuleTemplateRelativePath,
+                    MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock
                 }
             };
         }
