@@ -67,18 +67,24 @@ namespace AIBridgeCLI
 
             // Use longer timeout for multi commands
             var actualTimeout = timeout == DEFAULT_TIMEOUT ? MULTI_COMMAND_TIMEOUT : timeout;
-            var sender = new CommandSender(actualTimeout);
+            var sender = CreateCommandSender(actualTimeout, parsed);
 
             if (noWait)
             {
-                var commandId = sender.SendCommandNoWait(request);
+                var noWaitResult = sender.TrySendCommandNoWait(request);
+                if (!noWaitResult.success)
+                {
+                    OutputFormatter.PrintResult(noWaitResult, outputMode, includeIdInRaw: false);
+                    return 1;
+                }
+
                 if (outputMode == OutputMode.Pretty)
                 {
-                    OutputFormatter.PrintInfo($"Batch command sent with ID: {commandId} ({commandLines.Count} commands)");
+                    OutputFormatter.PrintInfo($"Batch command sent with ID: {noWaitResult.id} ({commandLines.Count} commands)");
                 }
                 else
                 {
-                    Console.WriteLine(JsonConvert.SerializeObject(new { id = commandId, status = "sent", count = commandLines.Count }));
+                    Console.WriteLine(JsonConvert.SerializeObject(new { id = noWaitResult.id, status = "sent", count = commandLines.Count }));
                 }
                 return 0;
             }
