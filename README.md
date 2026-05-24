@@ -7,7 +7,7 @@
 English | [中文](./README_CN.md)
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.3.2](https://img.shields.io/badge/Package-1.3.2-5b6cff?style=flat-square)
+![Package 1.3.5](https://img.shields.io/badge/Package-1.3.5-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
@@ -102,6 +102,25 @@ Use `dialog status` when Unity commands time out and the Editor may be blocked b
 - If you omit `--logType`, `get_logs` uses the Settings window default level filter.
 - If you pass `--regex`, that regex is applied to the log message text before returning results.
 - The global regex filter can be enabled from the Logs tab and will apply whenever `--regex` is not provided.
+
+### Modal Dialog Handling
+
+Unity modal dialogs can block the Editor main thread before AIBridge has a chance to process normal Unity-side commands. AIBridge includes a CLI-only `dialog` helper that inspects and clicks those OS-level windows directly, so an AI assistant can recover from save, discard, cancel, delete, replace, and confirmation prompts without guessing.
+
+```bash
+$CLI dialog status
+$CLI dialog click --choice discard
+$CLI dialog click --button "Don't Save"
+$CLI dialog wait --timeout 5000 --click cancel
+```
+
+When Unity is already blocked by a modal dialog, normal Unity commands return the detected dialog details instead of silently waiting for a timeout. The response includes visible button text and logical choices such as `save`, `discard`, and `cancel`, so the assistant can choose the next explicit click. For unattended flows, pass `--on-dialog <choice>` to a Unity command, for example:
+
+```bash
+$CLI scene load --scenePath "Assets/Scenes/Main.unity" --on-dialog discard
+```
+
+On Windows, dialog buttons are detected through window APIs and support button mnemonics such as `&Don't Save`. On macOS, dialog inspection and clicking require Accessibility permission.
 
 ### Assets And Scenes
 

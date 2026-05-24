@@ -24,7 +24,7 @@ Most Unity-side commands require an `action` such as `asset search` or `inspecto
 **Global Options:**
 
 - `--timeout <ms>` - Timeout (default: 5000)
-- `--on-dialog <mode>` - On Unity command timeout, inspect modal dialogs and optionally click: `none`, `wait`, `cancel`, `save`, `discard`, `ok`, `yes`, `no`, `delete`, `replace`
+- `--on-dialog <mode>` - When a Unity command is blocked by a modal dialog, optionally wait or click: `none`, `wait`, `cancel`, `save`, `discard`, `ok`, `yes`, `no`, `delete`, `replace`
 - `--raw` / `--pretty` - JSON output (default: raw)
 - `--json <json>` / `--stdin` - Complex parameters
 - `--help` - Show help
@@ -66,7 +66,7 @@ $CLI focus
 
 ### `dialog` - Inspect Or Click Unity Modal Dialogs
 
-CLI-only. Use when Unity-side commands time out because a save/confirm modal may be blocking the Editor. Default behavior only detects and reports dialogs; clicking requires an explicit `dialog click` or `--on-dialog` mode.
+CLI-only. Use when a save/confirm modal may be blocking the Editor. Unity commands report detected dialog details instead of blindly waiting; choose an explicit `dialog click` or use `--on-dialog` for unattended handling.
 
 ```bash
 $CLI dialog status

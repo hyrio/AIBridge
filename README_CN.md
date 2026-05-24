@@ -7,7 +7,7 @@
 [English](./README.md) | 中文
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.3.2](https://img.shields.io/badge/Package-1.3.2-5b6cff?style=flat-square)
+![Package 1.3.5](https://img.shields.io/badge/Package-1.3.5-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
@@ -102,6 +102,25 @@ Unity 命令超时且怀疑 Editor 被保存/确认弹窗阻塞时，使用 `dia
 - 如果不传 `--logType`，`get_logs` 会使用日志页签里的默认等级筛选。
 - 如果传了 `--regex`，会先按日志内容正则匹配，再返回结果。
 - 如果在日志页签里启用了全局正则，而本次没有传 `--regex`，则会自动应用全局正则。
+
+### 模态弹窗处理
+
+Unity 模态弹窗可能会阻塞 Editor 主线程，使普通 Unity 侧命令来不及被 AIBridge 处理。AIBridge 提供 CLI-only 的 `dialog` 辅助命令，可直接检查并点击操作系统层面的弹窗窗口，让 AI 在遇到保存、丢弃、取消、删除、替换和确认提示时能明确恢复流程，而不是盲猜。
+
+```bash
+$CLI dialog status
+$CLI dialog click --choice discard
+$CLI dialog click --button "Don't Save"
+$CLI dialog wait --timeout 5000 --click cancel
+```
+
+当 Unity 已被模态弹窗阻塞时，普通 Unity 命令会返回检测到的弹窗信息，而不是静默等待超时。返回内容包含可见按钮文本和 `save`、`discard`、`cancel` 等逻辑选项，方便 AI 决定下一步显式点击。无人值守流程可在 Unity 命令上加 `--on-dialog <choice>`，例如：
+
+```bash
+$CLI scene load --scenePath "Assets/Scenes/Main.unity" --on-dialog discard
+```
+
+Windows 上会通过窗口 API 检测弹窗按钮，并兼容 `&Don't Save` 这类按钮助记符。macOS 检查和点击弹窗需要 Accessibility 权限。
 
 ### 资源和场景
 
