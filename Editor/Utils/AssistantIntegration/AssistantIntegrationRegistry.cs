@@ -6,7 +6,7 @@ namespace AIBridge.Editor
     /// AI 助手集成目标注册表
     /// 
     /// Skills 目录支持说明：
-    /// - AIBridge 默认统一安装到项目根目录 .skills/，不同工具只写入规则或插件适配层。
+    /// - AIBridge 默认安装到各工具自己的 skills 根目录，自定义目录仅作为高级覆盖项。
     /// </summary>
     internal static class AssistantIntegrationRegistry
     {
@@ -36,7 +36,7 @@ namespace AIBridge.Editor
                     RootRuleFileName = "AGENTS.md",
                     SkillDirectoryRelativePath = ".codex/skills/aibridge",
                     SkillFileName = "SKILL.md",
-                    DetectionDirectoryRelativePaths = new[] { ".agents", ".codex" },
+                    DetectionDirectoryRelativePaths = new[] { ".agents", ".codex", ".codex-plugin" },
                     RootRuleTemplateRelativePath = SharedRootRuleTemplateRelativePath,
                     MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock
                 },
@@ -48,7 +48,7 @@ namespace AIBridge.Editor
                     RootRuleFileName = ".cursor/rules/aibridge.mdc",
                     SkillDirectoryRelativePath = ".cursor/skills/aibridge",
                     SkillFileName = "SKILL.md",
-                    DetectionDirectoryRelativePaths = new[] { ".cursor" },
+                    DetectionDirectoryRelativePaths = new[] { ".cursor", ".cursor-plugin" },
                     RootRuleTemplateRelativePath = SharedRootRuleTemplateRelativePath,
                     MissingRootRuleStrategy = MissingRootRuleStrategy.CreateWithInjectedBlock
                 },
