@@ -17,7 +17,13 @@ namespace AIBridgeCLI.Commands
             "call",
             "delay",
             "log",
-            "menu"
+            "menu",
+            "wait_compile",
+            "wait_playmode",
+            "assert_log_empty",
+            "assert_object",
+            "set_var",
+            "print_var"
         };
 
         public override string Type => "multi";

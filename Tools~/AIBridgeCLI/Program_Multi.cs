@@ -100,7 +100,8 @@ namespace AIBridgeCLI
             return @"AIBridgeCLI multi - Execute multiple commands through the batch script runner
 
 Each plain CLI line is written as `call <line>` in a temporary batch script.
-Native batch lines are allowed and kept as-is: call, delay, log, menu, and # comments.
+Native batch lines are allowed and kept as-is: call, delay, log, menu, wait_compile,
+wait_playmode, assert_log_empty, assert_object, set_var, print_var, and # comments.
 For complex quoting, JSON values, or long scripts, prefer --stdin.
 
 Usage:
