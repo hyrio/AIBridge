@@ -25,6 +25,11 @@ $CLI get_logs [--count 100] [--logType Error|Warning] [--regex ""pattern""]
             return new GetLogsCommand().GetConsoleLogs(maxCount, logTypeFilter, LogFilterMode.MinimumLevel, regexPattern);
         }
 
+        internal static List<LogEntry> GetConsoleLogsByMinimumLevel(int maxCount, string logTypeFilter, string regexPattern)
+        {
+            return new GetLogsCommand().GetConsoleLogs(maxCount, logTypeFilter, LogFilterMode.MinimumLevel, regexPattern);
+        }
+
         public CommandResult Execute(CommandRequest request)
         {
             var defaultSettings = AIBridgeProjectSettings.Instance.LogRetrieval;

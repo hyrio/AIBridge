@@ -26,12 +26,18 @@ namespace AIBridge.Editor.ScriptExecution
     public class ScriptCommandResult
     {
         public bool Success { get; set; }
+        public bool Pending { get; set; }
         public string Message { get; set; }
         public Exception Error { get; set; }
 
         public static ScriptCommandResult Ok(string message = "")
         {
             return new ScriptCommandResult { Success = true, Message = message };
+        }
+
+        public static ScriptCommandResult Wait(string message = "")
+        {
+            return new ScriptCommandResult { Success = true, Pending = true, Message = message };
         }
 
         public static ScriptCommandResult Fail(string message, Exception error = null)
@@ -66,11 +72,36 @@ namespace AIBridge.Editor.ScriptExecution
         public Action<string> LogCallback { get; set; }
 
         /// <summary>
+        /// 脚本级变量，随执行状态落盘，用于跨行传递少量文本值。
+        /// </summary>
+        public System.Collections.Generic.Dictionary<string, string> Variables { get; set; }
+
+        /// <summary>
         /// 输出日志
         /// </summary>
         public void Log(string message)
         {
             LogCallback?.Invoke(message);
+        }
+
+        public string GetVariable(string name)
+        {
+            if (Variables == null || string.IsNullOrEmpty(name) || !Variables.TryGetValue(name, out var value))
+            {
+                return null;
+            }
+
+            return value;
+        }
+
+        public void SetVariable(string name, string value)
+        {
+            if (Variables == null)
+            {
+                Variables = new System.Collections.Generic.Dictionary<string, string>();
+            }
+
+            Variables[name] = value ?? string.Empty;
         }
     }
 }

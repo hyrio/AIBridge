@@ -42,6 +42,11 @@ namespace AIBridge.Editor.ScriptExecution
         public List<string> Logs { get; set; }
 
         /// <summary>
+        /// 脚本变量表，用于 set_var / print_var 等命令在跨域重载恢复后继续工作。
+        /// </summary>
+        public Dictionary<string, string> Variables { get; set; }
+
+        /// <summary>
         /// 错误信息
         /// </summary>
         public string ErrorMessage { get; set; }
@@ -68,6 +73,7 @@ namespace AIBridge.Editor.ScriptExecution
         public ScriptExecutionState()
         {
             Logs = new List<string>();
+            Variables = new Dictionary<string, string>();
             Status = ExecutionStatus.Idle;
         }
 
@@ -164,6 +170,7 @@ namespace AIBridge.Editor.ScriptExecution
                 StartTime = GetString(data, nameof(StartTime)),
                 EndTime = GetString(data, nameof(EndTime)),
                 Logs = GetStringList(data, nameof(Logs)),
+                Variables = GetStringDictionary(data, nameof(Variables)),
                 ErrorMessage = GetString(data, nameof(ErrorMessage)),
                 PausedByCompilation = GetBool(data, nameof(PausedByCompilation)),
                 BatchRequestId = GetString(data, nameof(BatchRequestId)),
@@ -229,6 +236,29 @@ namespace AIBridge.Editor.ScriptExecution
                 {
                     result.Add(item.ToString());
                 }
+            }
+
+            return result;
+        }
+
+        private static Dictionary<string, string> GetStringDictionary(Dictionary<string, object> data, string key)
+        {
+            object value;
+            if (!data.TryGetValue(key, out value) || value == null)
+            {
+                return new Dictionary<string, string>();
+            }
+
+            var values = value as Dictionary<string, object>;
+            if (values == null)
+            {
+                return new Dictionary<string, string>();
+            }
+
+            var result = new Dictionary<string, string>();
+            foreach (var item in values)
+            {
+                result[item.Key] = item.Value != null ? item.Value.ToString() : string.Empty;
             }
 
             return result;

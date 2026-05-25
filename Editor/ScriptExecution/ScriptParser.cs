@@ -82,6 +82,44 @@ namespace AIBridge.Editor.ScriptExecution
                 return new CallCommand(args, timeout);
             }
 
+            if (line.Equals("wait_compile", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("wait_compile ", StringComparison.OrdinalIgnoreCase))
+            {
+                var args = line.Length > "wait_compile".Length ? line.Substring("wait_compile".Length).Trim() : string.Empty;
+                return new WaitCompileCommand(ParseOptionalInt(args, 60000));
+            }
+
+            if (line.Equals("wait_playmode", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("wait_playmode ", StringComparison.OrdinalIgnoreCase))
+            {
+                var args = line.Length > "wait_playmode".Length ? line.Substring("wait_playmode".Length).Trim() : string.Empty;
+                return ParseWaitPlayMode(args);
+            }
+
+            if (line.Equals("assert_log_empty", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("assert_log_empty ", StringComparison.OrdinalIgnoreCase))
+            {
+                var args = line.Length > "assert_log_empty".Length ? line.Substring("assert_log_empty".Length).Trim() : string.Empty;
+                return ParseAssertLogEmpty(args);
+            }
+
+            if (line.StartsWith("assert_object ", StringComparison.OrdinalIgnoreCase))
+            {
+                var path = ScriptTextUtility.StripOptionalQuotes(line.Substring("assert_object".Length).Trim());
+                return new AssertObjectCommand(path);
+            }
+
+            if (line.StartsWith("set_var ", StringComparison.OrdinalIgnoreCase))
+            {
+                return ParseSetVar(line.Substring("set_var".Length).Trim());
+            }
+
+            if (line.StartsWith("print_var ", StringComparison.OrdinalIgnoreCase))
+            {
+                var name = line.Substring("print_var".Length).Trim();
+                return new PrintVarCommand(name);
+            }
+
             // delay [milliseconds]
             if (line.StartsWith("delay ", StringComparison.OrdinalIgnoreCase))
             {
@@ -115,6 +153,115 @@ namespace AIBridge.Editor.ScriptExecution
             }
 
             throw new Exception($"未知的命令类型: {line}");
+        }
+
+        private static IScriptCommand ParseWaitPlayMode(string args)
+        {
+            var targetPlaying = true;
+            var timeoutMs = 30000;
+            if (!string.IsNullOrWhiteSpace(args))
+            {
+                var parts = Regex.Split(args, @"\s+");
+                if (parts.Length > 0 && !string.IsNullOrWhiteSpace(parts[0]))
+                {
+                    targetPlaying = ParsePlayModeTarget(parts[0]);
+                }
+
+                if (parts.Length > 1 && int.TryParse(parts[1], out var parsedTimeout))
+                {
+                    timeoutMs = parsedTimeout;
+                }
+            }
+
+            return new WaitPlayModeCommand(targetPlaying, timeoutMs);
+        }
+
+        private static bool ParsePlayModeTarget(string value)
+        {
+            if (string.Equals(value, "stopped", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "stop", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "exit", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "exited", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)
+                || value == "0")
+            {
+                return false;
+            }
+
+            if (string.Equals(value, "playing", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "play", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "enter", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "entered", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+                || value == "1")
+            {
+                return true;
+            }
+
+            throw new Exception($"无效的 PlayMode 目标状态: {value}");
+        }
+
+        private static IScriptCommand ParseAssertLogEmpty(string args)
+        {
+            if (string.IsNullOrWhiteSpace(args))
+            {
+                return new AssertLogEmptyCommand("Error", null, 500);
+            }
+
+            var parts = Regex.Split(args, @"\s+");
+            var logType = parts.Length > 0 && !string.IsNullOrWhiteSpace(parts[0]) ? parts[0] : "Error";
+            var count = 500;
+            if (parts.Length > 1 && int.TryParse(parts[1], out var parsedCount))
+            {
+                count = parsedCount;
+            }
+
+            return new AssertLogEmptyCommand(logType, null, count);
+        }
+
+        private static IScriptCommand ParseSetVar(string args)
+        {
+            if (string.IsNullOrWhiteSpace(args))
+            {
+                throw new Exception("set_var 需要变量名和值");
+            }
+
+            var separatorIndex = args.IndexOf('=');
+            string name;
+            string value;
+            if (separatorIndex > 0)
+            {
+                name = args.Substring(0, separatorIndex).Trim();
+                value = args.Substring(separatorIndex + 1).Trim();
+            }
+            else
+            {
+                var match = Regex.Match(args, @"^(?<name>\S+)\s+(?<value>.*)$");
+                if (!match.Success)
+                {
+                    throw new Exception("set_var 需要变量名和值");
+                }
+
+                name = match.Groups["name"].Value.Trim();
+                value = match.Groups["value"].Value.Trim();
+            }
+
+            return new SetVarCommand(name, ScriptTextUtility.StripOptionalQuotes(value));
+        }
+
+        private static int ParseOptionalInt(string value, int defaultValue)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return defaultValue;
+            }
+
+            if (int.TryParse(value, out var parsed))
+            {
+                return parsed;
+            }
+
+            throw new Exception($"无效的数字参数: {value}");
         }
 
         /// <summary>

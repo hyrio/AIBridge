@@ -54,7 +54,7 @@ namespace AIBridge.Editor
             public string SkillRootDirectory;
         }
 
-        public const int CurrentDataVersion = 7;
+        public const int CurrentDataVersion = 8;
         public const string DefaultEditorLanguage = "English";
         public const string LegacySharedSkillRootDirectory = ".skills";
         public const string DefaultSkillRootDirectory = "";
@@ -82,6 +82,8 @@ namespace AIBridge.Editor
         [SerializeField] private bool legacyGifMigrated;
         [SerializeField] private bool legacyScriptDirectoryMigrated;
         [SerializeField] private bool autoInstallSkills = true;
+        [SerializeField] private bool enableCodeExecution;
+        [SerializeField] private bool codeExecutionRiskAccepted;
 
         public static AIBridgeProjectSettings Instance
         {
@@ -268,6 +270,18 @@ namespace AIBridge.Editor
         {
             get { return autoInstallSkills; }
             set { autoInstallSkills = value; }
+        }
+
+        public bool EnableCodeExecution
+        {
+            get { return enableCodeExecution; }
+            set { enableCodeExecution = value; }
+        }
+
+        public bool CodeExecutionRiskAccepted
+        {
+            get { return codeExecutionRiskAccepted; }
+            set { codeExecutionRiskAccepted = value; }
         }
 
         public bool TryGetAssistantSelection(string targetId, out bool selected)
@@ -486,6 +500,11 @@ namespace AIBridge.Editor
                 && string.Equals(NormalizeSkillRootDirectory(skillRootDirectory), LegacySharedSkillRootDirectory, StringComparison.OrdinalIgnoreCase))
             {
                 skillRootDirectory = DefaultSkillRootDirectory;
+            }
+
+            if (dataVersion < 8)
+            {
+                enableCodeExecution = false;
             }
 
             if (dataVersion != CurrentDataVersion)

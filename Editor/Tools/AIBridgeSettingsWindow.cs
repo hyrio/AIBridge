@@ -173,6 +173,49 @@ namespace AIBridge.Editor
             {
                 AIBridgeLogger.DebugEnabled = _debugLogging;
             }
+
+            DrawCodeExecutionSetting();
+        }
+
+        private void DrawCodeExecutionSetting()
+        {
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Experimental", "实验功能"), EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                AIBridgeEditorText.T(
+                    "Code execution lets AI/CLI run temporary C# inside Unity Editor. Enable only for trusted projects and trusted callers.",
+                    "代码执行允许 AI/CLI 在 Unity Editor 内运行临时代码。仅在可信项目和可信调用方环境中启用。"),
+                MessageType.Warning);
+
+            var settings = AIBridgeProjectSettings.Instance;
+            EditorGUI.BeginChangeCheck();
+            var enabled = EditorGUILayout.Toggle(AIBridgeEditorText.T("Enable Code Execution", "启用代码执行"), settings.EnableCodeExecution);
+            if (!EditorGUI.EndChangeCheck())
+            {
+                return;
+            }
+
+            if (enabled)
+            {
+                var accepted = settings.CodeExecutionRiskAccepted || EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Enable Code Execution", "启用代码执行"),
+                    AIBridgeEditorText.T(
+                        "After enabling, AI/CLI can execute temporary C# code inside Unity Editor. Use only in trusted projects and trusted caller environments.",
+                        "开启后 AI/CLI 可在 Unity Editor 内执行临时代码，仅在可信项目和可信调用方环境中使用。"),
+                    AIBridgeEditorText.T("Enable", "启用"),
+                    AIBridgeEditorText.T("Cancel", "取消"));
+
+                if (!accepted)
+                {
+                    Repaint();
+                    return;
+                }
+
+                settings.CodeExecutionRiskAccepted = true;
+            }
+
+            settings.EnableCodeExecution = enabled;
+            settings.SaveSettings();
         }
 
         private void DrawLanguageSetting()

@@ -32,6 +32,12 @@ log ""消息""              # 输出日志
 delay 毫秒数            # 延迟执行
 call [CLI命令] [参数]   # 调用 AIBridge CLI（可选 --timeout 毫秒数）
 menu 菜单路径           # 执行编辑器菜单项
+wait_compile [timeoutMs]                 # 等待 Unity 编译完成
+wait_playmode playing|stopped [timeoutMs] # 等待进入/退出 PlayMode
+assert_log_empty [Error|Warning|Log]      # 断言 Console 指定最低等级日志为空
+assert_object ""Canvas/Button""           # 断言场景对象存在
+set_var name value                       # 设置脚本变量
+print_var name                           # 打印脚本变量
 # 注释                 # 行注释
 ```
 
@@ -52,8 +58,9 @@ $CLI batch from_file --file ""script.txt""
 # 自动化构建流程
 log ""开始构建""
 call compile unity
-delay 2000
+wait_compile 120000
 call scene get_hierarchy --depth 2
+assert_log_empty Error
 menu File/Save Project
 ```
 

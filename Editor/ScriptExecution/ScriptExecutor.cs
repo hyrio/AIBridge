@@ -307,7 +307,8 @@ namespace AIBridge.Editor.ScriptExecution
                 {
                     ScriptPath = _state.ScriptPath,
                     CurrentLine = _state.CurrentLine,
-                    LogCallback = Log
+                    LogCallback = Log,
+                    Variables = _state.Variables
                 };
 
                 var result = command.Execute(context);
@@ -323,6 +324,15 @@ namespace AIBridge.Editor.ScriptExecution
 
                     EditorApplication.update -= ExecuteNextCommand;
                     NotifyStatusChanged(ExecutionStatus.Error);
+                    return;
+                }
+
+                _state.Variables = context.Variables ?? new Dictionary<string, string>();
+
+                // 等待类脚本命令用 Pending 表示本行尚未完成，下一帧继续重试同一行，避免阻塞 Unity 主线程。
+                if (result.Pending)
+                {
+                    _state.Save();
                     return;
                 }
 
