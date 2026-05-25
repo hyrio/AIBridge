@@ -471,6 +471,8 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             var contentsPath = EditorApplication.applicationContentsPath;
             var candidates = new[]
             {
+                // Unity 2019 的完整 Roslyn 工具链在 Tools/Roslyn；优先使用它，避免 mono/4.5/csc.exe 缺少 facade 依赖。
+                Path.Combine(contentsPath, "Tools", "Roslyn", "csc.exe"),
                 Path.Combine(contentsPath, "MonoBleedingEdge", "lib", "mono", "msbuild", "Current", "bin", "Roslyn", "csc.exe"),
                 Path.Combine(contentsPath, "MonoBleedingEdge", "lib", "mono", "4.5", "csc.exe"),
                 Path.Combine(contentsPath, "DotNetSdkRoslyn", "csc.dll")
