@@ -7,11 +7,11 @@
 English | [中文](./README_CN.md)
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.3.5](https://img.shields.io/badge/Package-1.3.5-5b6cff?style=flat-square)
+![Package 1.3.6](https://img.shields.io/badge/Package-1.3.6-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
-AIBridge is a Unity package that gives AI coding assistants a stable CLI bridge into Unity Editor. It lets agents resolve real Unity asset paths, inspect scenes and prefabs, edit objects through Unity APIs, run Unity compilation, read Console logs, execute batch workflows, run tests, and capture screenshots or GIFs for visual verification.
+AIBridge is a Unity package that gives AI coding assistants a stable CLI bridge into Unity Editor. It lets agents resolve real Unity asset paths, inspect scenes and prefabs, edit objects through Unity APIs, run Unity compilation, read Console logs, execute batch workflows, run tests, simulate UGUI/EventSystem runtime clicks and drags, and capture screenshots or GIFs for visual verification.
 
 The package is designed for AI-assisted Unity development where the assistant must validate changes inside the Editor, not only edit files.
 
@@ -28,11 +28,19 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 | Traceability | Command files, results, logs, screenshots | Session state |
 | Extensibility | Unity commands plus CLI builders | Tool server extensions |
 
+## Core Capabilities
+
+- **Unity asset and object inspection**: find assets, read scene hierarchies, inspect components and SerializedProperty values, then write through Unity-aware APIs.
+- **Prefab and scene automation**: use simple Inspector field edits, Prefab Patch dry-runs, multi-step batch scripts, and task continuation across domain reloads.
+- **UGUI runtime input simulation**: in Play Mode, the `input` command can click, click screen coordinates, drag, and long-press EventSystem UI for button, inventory, and runtime panel checks.
+- **Roslyn temporary C# execution**: controlled `code execute` runs `.aibridge/code/*.cs` or `.csx` temporary scripts inside Unity Editor for complex one-off asset generation, structured analysis, diagnostics, and Runtime/Public API calls. It is disabled by default and requires both the Settings toggle and `--allow-experimental true`.
+- **Visual and log validation**: capture Game view screenshots or GIFs, read Console logs, run Unity compilation, and invoke tests so agents can close the loop on changes.
+
 ## Requirements
 
 - Unity 2019.4 or later.
 - .NET 8.0 Runtime for the bundled CLI.
-- Unity Editor must be running for Unity-side commands such as `compile unity`, `asset`, `scene`, `inspector`, `prefab`, `screenshot`, and `get_logs`.
+- Unity Editor must be running for Unity-side commands such as `compile unity`, `asset`, `scene`, `inspector`, `prefab`, `input`, `screenshot`, `code`, and `get_logs`.
 
 ## Installation
 
@@ -56,7 +64,12 @@ Installed AIBridge Skills are written to each selected tool's default skills dir
 
 You can also open the `Recommended Skill Library` tab, refresh the default `obra/superpowers` repository, and install third-party Skills into the selected tools' skills directories.
 
-## CLI Basics
+## CLI And Command Reference
+
+The command examples below are collapsed by default. Full command references are also generated into each installed Skill's `references/` directory.
+
+<details>
+<summary>CLI Basics</summary>
 
 Run commands from the Unity project root after AIBridge has copied its CLI cache:
 
@@ -74,7 +87,10 @@ $CLI <command> <action> [options]
 
 CLI-only helpers differ slightly: `focus` has no action, `dialog` uses `status/click/wait`, and `multi` uses `--cmd` or `--stdin`.
 
-## Common Commands
+</details>
+
+<details>
+<summary>Common Commands</summary>
 
 ### Editor, Compile, Logs, Tests
 
@@ -198,17 +214,41 @@ get_logs --logType Error --count 1
 $script | & "./.aibridge/cli/AIBridgeCLI.exe" multi --stdin
 ```
 
-### Visual Verification
+### Runtime Input And Visual Verification
+
+The `input` command automates UGUI/EventSystem interaction in Play Mode. It requires an active `EventSystem` in the current scene. You can target objects by hierarchy path or instance ID, click screen coordinates, drag between UI targets, or perform a long press.
 
 ```bash
+$CLI editor play
+$CLI input click --path "Canvas/StartButton"
+$CLI input click_at --x 960 --y 540
+$CLI input drag --path "Canvas/Item" --toPath "Canvas/Slot" --frames 12
+$CLI input long_press --instanceId 12345 --duration-ms 800
+
 $CLI gameview get_resolution
 $CLI gameview set_resolution --width 1920 --height 1080
 $CLI gameview list_resolutions
 $CLI screenshot game
 $CLI screenshot gif --frameCount 50 --fps 20 --scale 0.5
+$CLI editor stop
 ```
 
-Game view screenshots and GIF capture require Play Mode.
+Game view screenshots, GIF capture, and `input` commands require Play Mode. A typical flow is to enter Play Mode, inspect the scene hierarchy, run `input`, read Error logs, then verify the frame with a screenshot or GIF.
+
+### Roslyn Temporary C# Execution
+
+`code execute` runs controlled temporary Editor C# for complex one-off tasks that declarative CLI commands cannot express cleanly, such as generated asset sets, structured diagnostics, reports, Runtime/Public API calls, or multi-step UnityEditor API orchestration. It is not a replacement for `compile unity` or `test run`.
+
+Before use, enable `Enable Code Execution` in `Tools > AIBridge Settings > Basic`, and pass `--allow-experimental true` from the CLI. File mode is limited to `.aibridge/code/*.cs` or `.aibridge/code/*.csx`, and complex scripts should use file mode. `code execute` is single-flight; after a timeout, use `code status` first and only use `code cancel` when you need to release AIBridge's waiting state.
+
+```bash
+$CLI code execute --file ".aibridge/code/check.csx" --allow-experimental true --timeout 5000
+$CLI code execute --code "Debug.Log(\"hello\"); return 123;" --allow-experimental true
+$CLI code status
+$CLI code cancel
+```
+
+</details>
 
 ## Recommended AI Work Loop
 
@@ -217,7 +257,8 @@ Game view screenshots and GIF capture require Play Mode.
 3. Apply the smallest safe change through Unity-aware commands or source edits.
 4. Run `compile unity`.
 5. Read `get_logs --logType Error`.
-6. Use screenshots or GIFs for visual changes.
+6. For runtime UI, enter Play Mode and verify interaction with `input`, logs, and screenshots or GIFs.
+7. Use `code execute` only when declarative commands cannot express a complex one-off Editor task.
 
 ## Repository Layout
 

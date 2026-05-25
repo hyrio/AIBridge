@@ -7,11 +7,11 @@
 [English](./README.md) | 中文
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.3.5](https://img.shields.io/badge/Package-1.3.5-5b6cff?style=flat-square)
+![Package 1.3.6](https://img.shields.io/badge/Package-1.3.6-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
-AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor 之间建立稳定的 CLI 桥接。它可以让 AI 定位真实 Unity 资源路径、检查场景和 Prefab、通过 Unity API 编辑对象、执行 Unity 编译、读取 Console 日志、运行批处理流程、执行测试，并用截图或 GIF 做视觉验证。
+AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor 之间建立稳定的 CLI 桥接。它可以让 AI 定位真实 Unity 资源路径、检查场景和 Prefab、通过 Unity API 编辑对象、执行 Unity 编译、读取 Console 日志、运行批处理流程、执行测试，模拟 UGUI/EventSystem 运行时点击与拖拽，并用截图或 GIF 做视觉验证。
 
 它面向 AI 真实参与 Unity 项目开发的场景，而不是只生成代码建议。
 
@@ -28,11 +28,19 @@ AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor 之
 | 任务追踪 | 命令文件、结果、日志、截图 | 当前会话状态 |
 | 扩展方式 | Unity 命令 + CLI Builder | 工具服务扩展 |
 
+## 核心能力
+
+- **Unity 资源和对象检查**：查找资源、读取场景层级、检查组件和 SerializedProperty，并通过 Unity API 执行安全写入。
+- **Prefab 和场景自动化**：支持简单 Inspector 字段修改、Prefab Patch dry-run、多步骤批处理和跨域重载后的任务继续。
+- **UGUI 运行时输入模拟**：Play Mode 下通过 `input` 命令模拟点击、坐标点击、拖拽和长按，适合验证按钮、背包拖放、运行时面板等基于 EventSystem 的交互。
+- **Roslyn 临时 C# 执行**：通过受控的 `code execute` 在 Unity Editor 内执行 `.aibridge/code/*.cs` 或 `.csx` 临时脚本，用于复杂一次性资源生成、结构化分析、诊断和 Runtime/Public API 调用。该能力默认关闭，必须在设置中启用并显式传入 `--allow-experimental true`。
+- **视觉和日志验证**：支持 Game 视图截图、GIF、Console 日志读取、Unity 编译和测试命令，帮助 AI 闭环确认改动结果。
+
 ## 系统要求
 
 - Unity 2019.4 或更高版本。
 - .NET 8.0 Runtime，用于随包 CLI。
-- Unity 侧命令需要 Unity Editor 正在运行，例如 `compile unity`、`asset`、`scene`、`inspector`、`prefab`、`screenshot`、`get_logs`。
+- Unity 侧命令需要 Unity Editor 正在运行，例如 `compile unity`、`asset`、`scene`、`inspector`、`prefab`、`input`、`screenshot`、`code`、`get_logs`。
 
 ## 安装
 
@@ -56,7 +64,12 @@ https://github.com/liyingsong99/AIBridge.git
 
 如果项目有需要，也可以在 `Recommended Skill Library / 推荐 Skill 库` 页签刷新默认的 `obra/superpowers` 推荐仓库，并将其中的第三方 Skill 安装到已选工具的 skills 目录。
 
-## CLI 基础
+## CLI 与命令参考
+
+下面的命令示例默认折叠，日常使用时可以按需展开。完整命令说明也会随 Skills 安装生成到对应 `references/` 目录。
+
+<details>
+<summary>CLI 基础</summary>
 
 AIBridge 复制 CLI 缓存后，在 Unity 项目根目录执行：
 
@@ -74,7 +87,10 @@ $CLI <command> <action> [options]
 
 少数 CLI-only 或辅助命令格式不同：`focus` 没有 action，`dialog` 使用 `status/click/wait`，`multi` 使用 `--cmd` 或 `--stdin`。
 
-## 常用命令
+</details>
+
+<details>
+<summary>常用命令</summary>
 
 ### 编辑器、编译、日志、测试
 
@@ -198,17 +214,41 @@ get_logs --logType Error --count 1
 $script | & "./.aibridge/cli/AIBridgeCLI.exe" multi --stdin
 ```
 
-### 视觉验证
+### 运行时输入和视觉验证
+
+`input` 命令用于 Play Mode 下的 UGUI/EventSystem 自动化验证，需要当前场景存在可用的 `EventSystem`。它可以按层级路径或实例 ID 点击对象，也可以点击屏幕坐标、拖拽对象或执行长按。
 
 ```bash
+$CLI editor play
+$CLI input click --path "Canvas/StartButton"
+$CLI input click_at --x 960 --y 540
+$CLI input drag --path "Canvas/Item" --toPath "Canvas/Slot" --frames 12
+$CLI input long_press --instanceId 12345 --duration-ms 800
+
 $CLI gameview get_resolution
 $CLI gameview set_resolution --width 1920 --height 1080
 $CLI gameview list_resolutions
 $CLI screenshot game
 $CLI screenshot gif --frameCount 50 --fps 20 --scale 0.5
+$CLI editor stop
 ```
 
-Game 视图截图和 GIF 捕获需要 Play Mode。
+Game 视图截图、GIF 捕获和 `input` 命令都需要 Play Mode。推荐流程是进入 Play Mode，检查场景层级，执行 `input`，读取 Error 日志，再用截图或 GIF 复核画面。
+
+### Roslyn 临时 C# 执行
+
+`code execute` 用于受控执行临时 Editor C#。它适合声明式 CLI 命令难以表达的复杂一次性任务，例如生成组合资源、批量诊断、结构化报告、调用项目 Runtime/Public API 或编排多步 UnityEditor API。它不是 `compile unity` 或 `test run` 的替代品。
+
+使用前必须在 `Tools > AIBridge Settings > Basic` 启用 `Enable Code Execution`，并在 CLI 调用中传入 `--allow-experimental true`。文件模式只允许 `.aibridge/code/*.cs` 或 `.aibridge/code/*.csx`，复杂脚本优先使用文件模式。`code execute` 同一时间只允许一个任务；超时后先用 `code status` 查看状态，必要时再用 `code cancel` 释放 AIBridge 等待状态。
+
+```bash
+$CLI code execute --file ".aibridge/code/check.csx" --allow-experimental true --timeout 5000
+$CLI code execute --code "Debug.Log(\"hello\"); return 123;" --allow-experimental true
+$CLI code status
+$CLI code cancel
+```
+
+</details>
 
 ## 推荐 AI 工作流程
 
@@ -217,7 +257,8 @@ Game 视图截图和 GIF 捕获需要 Play Mode。
 3. 通过 Unity 感知命令或源码编辑执行最小安全改动。
 4. 执行 `compile unity`。
 5. 读取 `get_logs --logType Error`。
-6. 涉及画面效果时，用截图或 GIF 验证。
+6. 涉及运行时 UI 时，进入 Play Mode 后用 `input`、日志和截图/GIF 验证交互。
+7. 只有在声明式命令不足以表达复杂一次性 Editor 任务时，才启用并使用 `code execute`。
 
 ## 仓库结构
 
