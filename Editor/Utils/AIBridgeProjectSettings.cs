@@ -58,6 +58,7 @@ namespace AIBridge.Editor
         internal sealed class RuntimeBridgeSettingsData
         {
             public bool EnableRuntimeBridge = DefaultRuntimeBridgeEnabled;
+            public bool AutoInjectRuntimeBridgeInEditorPlayMode = DefaultRuntimeBridgeAutoInjectInEditorPlayMode;
             public bool AutoInjectRuntimeBridgeInDevelopmentBuild = DefaultRuntimeBridgeAutoInjectInDevelopmentBuild;
             public bool AllowInReleaseBuild = DefaultRuntimeBridgeAllowInReleaseBuild;
             public string ExchangeDirectory = DefaultRuntimeBridgeExchangeDirectory;
@@ -67,6 +68,7 @@ namespace AIBridge.Editor
             public float HeartbeatIntervalSeconds = DefaultRuntimeBridgeHeartbeatIntervalSeconds;
             public int LogBufferSize = DefaultRuntimeBridgeLogBufferSize;
             public int MaxResultBytes = DefaultRuntimeBridgeMaxResultBytes;
+            public bool KeepRunningInBackground = DefaultRuntimeBridgeKeepRunningInBackground;
 
             public bool AllowRuntimeBridgeInReleaseBuild
             {
@@ -75,7 +77,7 @@ namespace AIBridge.Editor
             }
         }
 
-        public const int CurrentDataVersion = 10;
+        public const int CurrentDataVersion = 12;
         public const string DefaultEditorLanguage = "English";
         public const string LegacySharedSkillRootDirectory = ".skills";
         public const string DefaultSkillRootDirectory = "";
@@ -90,6 +92,7 @@ namespace AIBridge.Editor
         public const bool DefaultEnableCodeExecution = true;
         public const bool DefaultCodeExecutionRiskAccepted = true;
         public const bool DefaultRuntimeBridgeEnabled = true;
+        public const bool DefaultRuntimeBridgeAutoInjectInEditorPlayMode = true;
         public const bool DefaultRuntimeBridgeAutoInjectInDevelopmentBuild = true;
         public const bool DefaultRuntimeBridgeAllowInReleaseBuild = false;
         public const string DefaultRuntimeBridgeExchangeDirectory = "";
@@ -97,6 +100,7 @@ namespace AIBridge.Editor
         public const float DefaultRuntimeBridgeHeartbeatIntervalSeconds = 1f;
         public const int DefaultRuntimeBridgeLogBufferSize = 500;
         public const int DefaultRuntimeBridgeMaxResultBytes = 1048576;
+        public const bool DefaultRuntimeBridgeKeepRunningInBackground = true;
         public static readonly string[] SupportedLogRetrievalTypes = { "all", "Log", "Warning", "Error" };
 
         [SerializeField] private int dataVersion = CurrentDataVersion;
@@ -576,6 +580,16 @@ namespace AIBridge.Editor
             if (dataVersion < 10)
             {
                 runtimeBridge.AutoInjectRuntimeBridgeInDevelopmentBuild = DefaultRuntimeBridgeAutoInjectInDevelopmentBuild;
+            }
+
+            if (dataVersion < 11)
+            {
+                runtimeBridge.KeepRunningInBackground = DefaultRuntimeBridgeKeepRunningInBackground;
+            }
+
+            if (dataVersion < 12)
+            {
+                runtimeBridge.AutoInjectRuntimeBridgeInEditorPlayMode = DefaultRuntimeBridgeAutoInjectInEditorPlayMode;
             }
 
             if (dataVersion != CurrentDataVersion)

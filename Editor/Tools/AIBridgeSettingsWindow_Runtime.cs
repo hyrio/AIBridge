@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using AIBridge.Runtime;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -27,9 +26,17 @@ namespace AIBridge.Editor
                 AIBridgeEditorText.T("Enable Runtime Bridge", "启用 Runtime Bridge"),
                 settings.EnableRuntimeBridge);
 
+            settings.AutoInjectRuntimeBridgeInEditorPlayMode = EditorGUILayout.Toggle(
+                AIBridgeEditorText.T("Auto Inject In Editor Play Mode", "Editor Play Mode 自动注入"),
+                settings.AutoInjectRuntimeBridgeInEditorPlayMode);
+
             settings.AutoInjectRuntimeBridgeInDevelopmentBuild = EditorGUILayout.Toggle(
                 AIBridgeEditorText.T("Auto Inject In Development Build", "Development Build 自动注入"),
                 settings.AutoInjectRuntimeBridgeInDevelopmentBuild);
+
+            settings.KeepRunningInBackground = EditorGUILayout.Toggle(
+                AIBridgeEditorText.T("Keep Running In Background", "后台保持运行"),
+                settings.KeepRunningInBackground);
 
             settings.AllowRuntimeBridgeInReleaseBuild = EditorGUILayout.Toggle(
                 AIBridgeEditorText.T("Allow Runtime Bridge In Release Build", "允许 Release Build 启用 Runtime Bridge"),
@@ -130,15 +137,17 @@ namespace AIBridge.Editor
 
         private static void CreateOrSelectRuntimeObject()
         {
-            var runtime = FindSceneRuntime();
+            var runtime = AIBridgeRuntimeBridgeEditorUtility.FindSceneRuntime();
             if (runtime == null)
             {
-                var gameObject = new GameObject("AIBridgeRuntime");
-                Undo.RegisterCreatedObjectUndo(gameObject, "Create AIBridgeRuntime");
-                runtime = gameObject.AddComponent<AIBridgeRuntime>();
+                runtime = AIBridgeRuntimeBridgeEditorUtility.CreateConfiguredRuntimeObject(
+                    "AIBridgeRuntime",
+                    HideFlags.None,
+                    useUndo: true);
             }
 
-            ApplySettingsToRuntime(runtime);
+            AIBridgeRuntimeBridgeEditorUtility.ApplyProjectSettingsToRuntime(runtime);
+            EditorUtility.SetDirty(runtime);
             Selection.activeGameObject = runtime.gameObject;
             EditorGUIUtility.PingObject(runtime.gameObject);
             EditorSceneManager.MarkSceneDirty(runtime.gameObject.scene);
@@ -146,16 +155,11 @@ namespace AIBridge.Editor
 
         private static void ApplySettingsToSceneRuntimes(bool showDialog)
         {
-            var runtimes = Resources.FindObjectsOfTypeAll<AIBridgeRuntime>()
-                .Where(runtime => runtime != null
-                    && runtime.gameObject != null
-                    && runtime.gameObject.scene.IsValid()
-                    && !EditorUtility.IsPersistent(runtime))
-                .ToArray();
+            var runtimes = AIBridgeRuntimeBridgeEditorUtility.FindSceneRuntimes();
 
             for (var i = 0; i < runtimes.Length; i++)
             {
-                ApplySettingsToRuntime(runtimes[i]);
+                AIBridgeRuntimeBridgeEditorUtility.ApplyProjectSettingsToRuntime(runtimes[i]);
                 EditorUtility.SetDirty(runtimes[i]);
                 EditorSceneManager.MarkSceneDirty(runtimes[i].gameObject.scene);
             }
@@ -169,55 +173,6 @@ namespace AIBridge.Editor
                         $"已将 Runtime Bridge 设置应用到 {runtimes.Length} 个场景 Runtime 对象。"),
                     AIBridgeEditorText.T("OK", "确定"));
             }
-        }
-
-        private static AIBridgeRuntime FindSceneRuntime()
-        {
-            return Resources.FindObjectsOfTypeAll<AIBridgeRuntime>()
-                .FirstOrDefault(runtime => runtime != null
-                    && runtime.gameObject != null
-                    && runtime.gameObject.scene.IsValid()
-                    && !EditorUtility.IsPersistent(runtime));
-        }
-
-        private static void ApplySettingsToRuntime(AIBridgeRuntime runtime)
-        {
-            if (runtime == null)
-            {
-                return;
-            }
-
-            var source = AIBridgeProjectSettings.Instance.RuntimeBridge;
-            if (runtime.runtimeSettings == null)
-            {
-                runtime.runtimeSettings = new AIBridgeRuntimeSettings();
-            }
-
-            runtime.runtimeSettings.enableRuntimeBridge = source.EnableRuntimeBridge;
-            runtime.runtimeSettings.allowInReleaseBuild = source.AllowInReleaseBuild;
-            runtime.runtimeSettings.exchangeDirectory = source.ExchangeDirectory ?? string.Empty;
-            runtime.runtimeSettings.targetId = source.TargetId ?? string.Empty;
-            runtime.runtimeSettings.authToken = source.AuthToken ?? string.Empty;
-            runtime.runtimeSettings.allowedActions = ParseAllowedActions(source.AllowedActions);
-            runtime.runtimeSettings.heartbeatIntervalSeconds = source.HeartbeatIntervalSeconds;
-            runtime.runtimeSettings.logBufferSize = Math.Max(1, source.LogBufferSize);
-            runtime.runtimeSettings.maxResultBytes = Math.Max(1024, source.MaxResultBytes);
-            EditorUtility.SetDirty(runtime);
-        }
-
-        private static string[] ParseAllowedActions(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return new string[0];
-            }
-
-            return value
-                .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(action => action.Trim())
-                .Where(action => !string.IsNullOrEmpty(action))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
         }
 
         private static void OpenRuntimeDirectory()

@@ -14,6 +14,7 @@ namespace AIBridge.Runtime
         public float heartbeatIntervalSeconds = 1f;
         public int logBufferSize = 500;
         public int maxResultBytes = 1048576;
+        public bool keepRunningInBackground = true;
         public bool enableHttpTransport = false;
         public string httpBindAddress = "127.0.0.1";
         public int httpPort = 27182;

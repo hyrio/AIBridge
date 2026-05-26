@@ -1,4 +1,5 @@
 using System.IO;
+using AIBridge.Runtime;
 using UnityEditor;
 using UnityEngine;
 
@@ -21,6 +22,7 @@ namespace AIBridge.Editor
         /// Maximum commands to process per frame
         /// </summary>
         private const int MAX_COMMANDS_PER_FRAME = 5;
+        private const string PlayModeRuntimeObjectName = "AIBridgeRuntime (Play Mode)";
 
         private static double _lastPollTime;
         private static CommandWatcher _watcher;
@@ -130,6 +132,7 @@ namespace AIBridge.Editor
 
                 case PlayModeStateChange.EnteredPlayMode:
                     // In play mode - still process commands
+                    EnsureRuntimeBridgeForPlayMode();
                     break;
 
                 case PlayModeStateChange.ExitingPlayMode:
@@ -140,6 +143,32 @@ namespace AIBridge.Editor
                     // Back to edit mode - reinitialize if needed
                     break;
             }
+        }
+
+        private static void EnsureRuntimeBridgeForPlayMode()
+        {
+            var settings = AIBridgeProjectSettings.Instance.RuntimeBridge;
+            if (settings == null
+                || !settings.EnableRuntimeBridge
+                || !settings.AutoInjectRuntimeBridgeInEditorPlayMode)
+            {
+                return;
+            }
+
+            if (AIBridgeRuntimeBridgeEditorUtility.FindSceneRuntime() != null)
+            {
+                return;
+            }
+
+            // Play Mode 临时注入不写入场景，避免用户只为调试 Runtime Bridge 而手动挂组件。
+            AIBridgeRuntimeBridgeEditorUtility.CreateConfiguredRuntimeObject(
+                PlayModeRuntimeObjectName,
+                HideFlags.HideInHierarchy | HideFlags.DontSave,
+                useUndo: false);
+
+            AIBridgeLogger.LogInfo(AIBridgeEditorText.T(
+                "Runtime Bridge auto injected for Editor Play Mode.",
+                "已为 Editor Play Mode 自动注入 Runtime Bridge。"));
         }
 
         private static void OnEditorQuitting()

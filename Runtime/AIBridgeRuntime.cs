@@ -89,6 +89,8 @@ namespace AIBridge.Runtime
         private float _lastHeartbeatTime;
         private DateTime _startedAtUtc;
         private bool _initialized;
+        private bool _runInBackgroundChanged;
+        private bool _previousRunInBackground;
 
         private void Awake()
         {
@@ -110,6 +112,7 @@ namespace AIBridge.Runtime
             if (Instance == this)
             {
                 StopHttpTransport();
+                RestoreRunInBackgroundIfNeeded();
                 Instance = null;
                 _logBuffer.Dispose();
                 LogDebug("Destroyed");
@@ -221,6 +224,7 @@ namespace AIBridge.Runtime
                 Directory.CreateDirectory(_screenshotsPath);
                 _logBuffer.Initialize(Math.Max(1, runtimeSettings.logBufferSize));
                 _initialized = true;
+                ApplyRunInBackgroundIfNeeded();
                 StartHttpTransportIfNeeded();
                 WriteHeartbeat();
             }
@@ -556,6 +560,8 @@ namespace AIBridge.Runtime
                 platform = Application.platform.ToString(),
                 isEditor = Application.isEditor,
                 isDebugBuild = Debug.isDebugBuild,
+                runInBackground = Application.runInBackground,
+                keepRunningInBackground = runtimeSettings != null && runtimeSettings.keepRunningInBackground,
                 activeScene = SceneManager.GetActiveScene().name,
                 loadedScenes = GetLoadedScenes(),
                 uptimeSeconds = (DateTime.UtcNow - _startedAtUtc).TotalSeconds,
@@ -966,6 +972,8 @@ namespace AIBridge.Runtime
                 ["platform"] = Application.platform.ToString(),
                 ["isEditor"] = Application.isEditor,
                 ["isDebugBuild"] = Debug.isDebugBuild,
+                ["runInBackground"] = Application.runInBackground,
+                ["keepRunningInBackground"] = runtimeSettings != null && runtimeSettings.keepRunningInBackground,
                 ["activeScene"] = SceneManager.GetActiveScene().name,
                 ["uptimeSeconds"] = (DateTime.UtcNow - _startedAtUtc).TotalSeconds,
                 ["lastHeartbeatUtc"] = DateTime.UtcNow.ToString("o"),
@@ -985,6 +993,44 @@ namespace AIBridge.Runtime
             {
                 Debug.LogError($"[AIBridgeRuntime] Failed to write heartbeat: {ex.Message}");
             }
+        }
+
+        private void ApplyRunInBackgroundIfNeeded()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (runtimeSettings == null || !runtimeSettings.keepRunningInBackground)
+            {
+                return;
+            }
+
+            _previousRunInBackground = Application.runInBackground;
+            if (Application.runInBackground)
+            {
+                return;
+            }
+
+            // Runtime Bridge 依赖帧循环刷新 heartbeat 和处理命令，失焦后保持运行可避免 CLI 误判超时。
+            Application.runInBackground = true;
+            _runInBackgroundChanged = true;
+            LogDebug("Enabled Application.runInBackground for Runtime Bridge.");
+#endif
+        }
+
+        private void RestoreRunInBackgroundIfNeeded()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (!_runInBackgroundChanged)
+            {
+                return;
+            }
+
+            if (Application.runInBackground)
+            {
+                Application.runInBackground = _previousRunInBackground;
+            }
+
+            _runInBackgroundChanged = false;
+#endif
         }
 
         private void WriteResult(AIBridgeRuntimeCommandResult result)

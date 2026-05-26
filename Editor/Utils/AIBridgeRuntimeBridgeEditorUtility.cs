@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using AIBridge.Internal.Json;
+using AIBridge.Runtime;
+using UnityEditor;
+using UnityEngine;
 
 namespace AIBridge.Editor
 {
@@ -103,6 +107,63 @@ namespace AIBridge.Editor
             return "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
         }
 
+        public static AIBridgeRuntime FindSceneRuntime()
+        {
+            return FindSceneRuntimes().FirstOrDefault();
+        }
+
+        public static AIBridgeRuntime[] FindSceneRuntimes()
+        {
+            return Resources.FindObjectsOfTypeAll<AIBridgeRuntime>()
+                .Where(runtime => runtime != null
+                    && runtime.gameObject != null
+                    && runtime.gameObject.scene.IsValid()
+                    && !EditorUtility.IsPersistent(runtime))
+                .ToArray();
+        }
+
+        public static AIBridgeRuntime CreateConfiguredRuntimeObject(string objectName, HideFlags hideFlags, bool useUndo)
+        {
+            var gameObject = new GameObject(objectName);
+            gameObject.SetActive(false);
+            gameObject.hideFlags = hideFlags;
+
+            if (useUndo)
+            {
+                Undo.RegisterCreatedObjectUndo(gameObject, "Create AIBridgeRuntime");
+            }
+
+            var runtime = gameObject.AddComponent<AIBridgeRuntime>();
+            ApplyProjectSettingsToRuntime(runtime);
+            gameObject.SetActive(true);
+            return runtime;
+        }
+
+        public static void ApplyProjectSettingsToRuntime(AIBridgeRuntime runtime)
+        {
+            if (runtime == null)
+            {
+                return;
+            }
+
+            var source = AIBridgeProjectSettings.Instance.RuntimeBridge;
+            if (runtime.runtimeSettings == null)
+            {
+                runtime.runtimeSettings = new AIBridgeRuntimeSettings();
+            }
+
+            runtime.runtimeSettings.enableRuntimeBridge = source.EnableRuntimeBridge;
+            runtime.runtimeSettings.allowInReleaseBuild = source.AllowInReleaseBuild;
+            runtime.runtimeSettings.exchangeDirectory = source.ExchangeDirectory ?? string.Empty;
+            runtime.runtimeSettings.targetId = source.TargetId ?? string.Empty;
+            runtime.runtimeSettings.authToken = source.AuthToken ?? string.Empty;
+            runtime.runtimeSettings.allowedActions = ParseAllowedActions(source.AllowedActions);
+            runtime.runtimeSettings.heartbeatIntervalSeconds = source.HeartbeatIntervalSeconds;
+            runtime.runtimeSettings.logBufferSize = Math.Max(1, source.LogBufferSize);
+            runtime.runtimeSettings.maxResultBytes = Math.Max(1024, source.MaxResultBytes);
+            runtime.runtimeSettings.keepRunningInBackground = source.KeepRunningInBackground;
+        }
+
         private static Dictionary<string, object> ReadHeartbeat(string heartbeatPath)
         {
             if (!File.Exists(heartbeatPath))
@@ -163,6 +224,21 @@ namespace AIBridge.Editor
             }
 
             return int.TryParse(value.ToString(), out var parsed) ? parsed : 0;
+        }
+
+        private static string[] ParseAllowedActions(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return new string[0];
+            }
+
+            return value
+                .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(action => action.Trim())
+                .Where(action => !string.IsNullOrEmpty(action))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
         }
 
         private static int ComparePlayers(AIBridgeRuntimePlayerInfo left, AIBridgeRuntimePlayerInfo right)

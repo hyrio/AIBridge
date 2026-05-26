@@ -42,7 +42,7 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 - Unity 2019.4 or later.
 - .NET 8.0 Runtime for the bundled CLI.
 - Unity Editor must be running for Unity-side commands such as `compile unity`, `asset`, `scene`, `inspector`, `prefab`, `input`, `screenshot`, `code`, and `get_logs`.
-- `runtime` commands require an `AIBridgeRuntime` component in the Player or Play Mode scene. Runtime Bridge is disabled by default in Release Builds unless the project explicitly enables it.
+- `runtime` commands require an `AIBridgeRuntime` component in the Player or Play Mode scene; Editor Play Mode can auto inject one when Runtime Bridge is enabled. Runtime Bridge is disabled by default in Release Builds unless the project explicitly enables it.
 
 ## Installation
 
@@ -243,7 +243,7 @@ Game view screenshots, GIF capture, and `input` commands require Play Mode. Scen
 
 The `runtime` command connects to `AIBridgeRuntime` inside a Player or Play Mode scene. The default target directory is `.aibridge/runtime/targets/`; built Players can pass `--aibridge-runtime-dir <path>` and `--aibridge-target-id <id>` at launch.
 
-Use `AIBridge/Settings > Runtime` to configure default enablement, Release Build allowance, runtime directory, TargetId, auth token, allowed actions, and log buffer size. Use `AIBridge/Players` to inspect heartbeat-discovered Players, status, scene, platform, and common CLI commands.
+Use `AIBridge/Settings > Runtime` to configure default enablement, Editor Play Mode auto injection, Development Build auto injection, Release Build allowance, background running, runtime directory, TargetId, auth token, allowed actions, and log buffer size. Use `AIBridge/Players` to inspect heartbeat-discovered Players, status, scene, platform, and common CLI commands. Editor Play Mode auto injection is enabled by default, so entering Play Mode creates a temporary hidden `AIBridgeRuntime` when the scene does not already contain one. `Keep Running In Background` is enabled by default for Editor Play Mode and Development Builds so heartbeat and runtime commands keep working after focus loss.
 
 ```bash
 $CLI runtime list_targets
