@@ -34,6 +34,7 @@ namespace AIBridge.Editor
         private const long MaxSourceFileBytes = 512 * 1024;
         private const int MaxNormalizedDepth = 8;
         private const int MaxNormalizedCollectionItems = 512;
+        private const int CompilerProbeTimeoutMs = 5000;
         private const string CSharpVersion2019 = "7.3";
         private const string CSharpVersion2020 = "8.0";
         private const string CSharpVersion2021OrNewer = "9.0";
@@ -513,20 +514,28 @@ $CLI code cancel
 
             CompilerInvocation compiler;
             List<string> compilerProbePaths;
-            if (!TryResolveCompiler(out compiler, out compilerProbePaths))
+            List<string> compilerProbeFailures;
+            if (!TryResolveCompiler(out compiler, out compilerProbePaths, out compilerProbeFailures))
             {
-                compileErrors.Add("C# compiler was not found in the Unity installation.");
+                compileErrors.Add("C# compiler was not found or could not start in the Unity installation.");
                 for (var i = 0; i < compilerProbePaths.Count; i++)
                 {
                     compileErrors.Add("Tried compiler path: " + compilerProbePaths[i]);
                 }
 
+                for (var i = 0; i < compilerProbeFailures.Count; i++)
+                {
+                    compileErrors.Add(compilerProbeFailures[i]);
+                }
+
                 session.CompilerProbePaths = compilerProbePaths;
+                session.CompilerProbeFailures = compilerProbeFailures;
                 return false;
             }
 
             session.Compiler = compiler;
             session.CompilerProbePaths = compilerProbePaths;
+            session.CompilerProbeFailures = compilerProbeFailures;
             var output = RunCompilerProcess(compiler, responsePath, session.TimeoutMs, compileErrors, session.CompilerDiagnostics);
             if (!string.IsNullOrEmpty(output))
             {
@@ -659,12 +668,16 @@ $CLI code cancel
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase);
         }
 
-        private static bool TryResolveCompiler(out CompilerInvocation compiler, out List<string> probePaths)
+        private static bool TryResolveCompiler(
+            out CompilerInvocation compiler,
+            out List<string> probePaths,
+            out List<string> probeFailures)
         {
             compiler = null;
             var contentsPath = EditorApplication.applicationContentsPath;
             var candidates = GetCompilerCandidatePaths(contentsPath);
             probePaths = candidates.ToList();
+            probeFailures = new List<string>();
 
             for (var i = 0; i < candidates.Length; i++)
             {
@@ -674,47 +687,15 @@ $CLI code cancel
                     continue;
                 }
 
-                if (candidate.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                var candidateCompiler = CreateCompilerInvocation(contentsPath, candidate);
+                string failure;
+                if (CanStartCompiler(candidateCompiler, CompilerProbeTimeoutMs, out failure))
                 {
-                    compiler = new CompilerInvocation
-                    {
-                        CompilerPath = candidate,
-                        FileName = "dotnet",
-                        PrefixArguments = "\"" + candidate + "\""
-                    };
+                    compiler = candidateCompiler;
                     return true;
                 }
 
-                if (candidate.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                {
-#if UNITY_EDITOR_WIN
-                    compiler = new CompilerInvocation
-                    {
-                        CompilerPath = candidate,
-                        FileName = candidate,
-                        PrefixArguments = string.Empty
-                    };
-#else
-                    var monoPath = Path.Combine(contentsPath, "MonoBleedingEdge", "bin", "mono");
-                    compiler = new CompilerInvocation
-                    {
-                        CompilerPath = candidate,
-                        FileName = File.Exists(monoPath) ? monoPath : candidate,
-                        PrefixArguments = File.Exists(monoPath) ? "\"" + candidate + "\"" : string.Empty
-                    };
-#endif
-                }
-                else
-                {
-                    compiler = new CompilerInvocation
-                    {
-                        CompilerPath = candidate,
-                        FileName = candidate,
-                        PrefixArguments = string.Empty
-                    };
-                }
-
-                return true;
+                probeFailures.Add("Skipped compiler path: " + candidate + " (" + failure + ")");
             }
 
             return false;
@@ -726,10 +707,173 @@ $CLI code cancel
             {
                 // Unity 2019 的完整 Roslyn 工具链在 Tools/Roslyn；优先使用它，避免 mono/4.5/csc.exe 缺少 facade 依赖。
                 Path.Combine(contentsPath, "Tools", "Roslyn", "csc.exe"),
+                // Unity 6000 的 MonoBleedingEdge Roslyn exe 可能缺运行时依赖；优先使用随 Editor 提供的 .NET Roslyn。
+                Path.Combine(contentsPath, "DotNetSdkRoslyn", "csc.dll"),
                 Path.Combine(contentsPath, "MonoBleedingEdge", "lib", "mono", "msbuild", "Current", "bin", "Roslyn", "csc.exe"),
-                Path.Combine(contentsPath, "MonoBleedingEdge", "lib", "mono", "4.5", "csc.exe"),
-                Path.Combine(contentsPath, "DotNetSdkRoslyn", "csc.dll")
+                Path.Combine(contentsPath, "MonoBleedingEdge", "lib", "mono", "4.5", "csc.exe")
             };
+        }
+
+        private static CompilerInvocation CreateCompilerInvocation(string contentsPath, string candidate)
+        {
+            if (candidate.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            {
+                return new CompilerInvocation
+                {
+                    CompilerPath = candidate,
+                    FileName = ResolveDotNetProcessPath(contentsPath),
+                    PrefixArguments = QuoteArgument(candidate)
+                };
+            }
+
+            if (candidate.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+#if UNITY_EDITOR_WIN
+                return new CompilerInvocation
+                {
+                    CompilerPath = candidate,
+                    FileName = candidate,
+                    PrefixArguments = string.Empty
+                };
+#else
+                var monoPath = Path.Combine(contentsPath, "MonoBleedingEdge", "bin", "mono");
+                return new CompilerInvocation
+                {
+                    CompilerPath = candidate,
+                    FileName = File.Exists(monoPath) ? monoPath : candidate,
+                    PrefixArguments = File.Exists(monoPath) ? QuoteArgument(candidate) : string.Empty
+                };
+#endif
+            }
+
+            return new CompilerInvocation
+            {
+                CompilerPath = candidate,
+                FileName = candidate,
+                PrefixArguments = string.Empty
+            };
+        }
+
+        internal static string ResolveDotNetProcessPath(string contentsPath)
+        {
+#if UNITY_EDITOR_WIN
+            var dotNetFileName = "dotnet.exe";
+#else
+            var dotNetFileName = "dotnet";
+#endif
+            var bundledDotNet = Path.Combine(contentsPath, "NetCoreRuntime", dotNetFileName);
+            return File.Exists(bundledDotNet) ? bundledDotNet : FallbackCompilerProcessName;
+        }
+
+        private static string QuoteArgument(string value)
+        {
+            return "\"" + value + "\"";
+        }
+
+        private static bool CanStartCompiler(CompilerInvocation compiler, int timeoutMs, out string failure)
+        {
+            failure = null;
+            var arguments = BuildCompilerProcessArguments(compiler, "-help");
+            var outputEncoding = ResolveCompilerOutputEncoding();
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = string.IsNullOrEmpty(compiler.FileName) ? FallbackCompilerProcessName : compiler.FileName,
+                Arguments = arguments,
+                WorkingDirectory = GetProjectRoot(),
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = outputEncoding,
+                StandardErrorEncoding = outputEncoding
+            };
+
+            try
+            {
+                using (var process = new Process())
+                {
+                    process.StartInfo = startInfo;
+                    var stdoutBuilder = new StringBuilder();
+                    var stderrBuilder = new StringBuilder();
+                    process.OutputDataReceived += (sender, args) => AppendCompilerProbeLine(stdoutBuilder, args.Data);
+                    process.ErrorDataReceived += (sender, args) => AppendCompilerProbeLine(stderrBuilder, args.Data);
+
+                    if (!process.Start())
+                    {
+                        failure = "probe process did not start";
+                        return false;
+                    }
+
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+                    if (!process.WaitForExit(timeoutMs))
+                    {
+                        try
+                        {
+                            process.Kill();
+                        }
+                        catch
+                        {
+                            // Ignore kill failures.
+                        }
+
+                        failure = "probe timed out after " + timeoutMs + "ms";
+                        return false;
+                    }
+
+                    process.WaitForExit();
+                    if (process.ExitCode == 0)
+                    {
+                        return true;
+                    }
+
+                    var detail = FirstNonEmptyLine(stderrBuilder.ToString());
+                    if (string.IsNullOrEmpty(detail))
+                    {
+                        detail = FirstNonEmptyLine(stdoutBuilder.ToString());
+                    }
+
+                    failure = string.IsNullOrEmpty(detail)
+                        ? "probe exited with code " + process.ExitCode
+                        : "probe exited with code " + process.ExitCode + ": " + detail;
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                failure = ex.GetType().Name + ": " + ex.Message;
+                return false;
+            }
+        }
+
+        private static void AppendCompilerProbeLine(StringBuilder builder, string line)
+        {
+            if (builder == null || line == null || builder.Length >= 2048)
+            {
+                return;
+            }
+
+            builder.AppendLine(line);
+        }
+
+        private static string FirstNonEmptyLine(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return null;
+            }
+
+            var lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (!string.IsNullOrEmpty(line))
+                {
+                    return line;
+                }
+            }
+
+            return null;
         }
 
         private static string RunCompilerProcess(
@@ -739,9 +883,7 @@ $CLI code cancel
             List<string> compileErrors,
             List<CompilerDiagnostic> diagnostics)
         {
-            var arguments = string.IsNullOrEmpty(compiler.PrefixArguments)
-                ? "@\"" + responsePath + "\""
-                : compiler.PrefixArguments + " @\"" + responsePath + "\"";
+            var arguments = BuildCompilerProcessArguments(compiler, "@\"" + responsePath + "\"");
 
             var outputBuilder = new StringBuilder();
             var outputEncoding = ResolveCompilerOutputEncoding();
@@ -819,6 +961,13 @@ $CLI code cancel
             }
 
             return outputBuilder.ToString();
+        }
+
+        private static string BuildCompilerProcessArguments(CompilerInvocation compiler, string suffixArgument)
+        {
+            return string.IsNullOrEmpty(compiler.PrefixArguments)
+                ? suffixArgument
+                : compiler.PrefixArguments + " " + suffixArgument;
         }
 
         internal static Encoding ResolveCompilerOutputEncoding()
@@ -1047,6 +1196,7 @@ $CLI code cancel
                 compilerOutput = session.CompilerOutput,
                 compiler = BuildCompilerInfo(session),
                 compilerProbePaths = session.CompilerProbePaths ?? new List<string>(),
+                compilerProbeFailures = session.CompilerProbeFailures ?? new List<string>(),
                 exception = exception
             };
         }
@@ -1495,6 +1645,7 @@ $CLI code cancel
             public string CompilerOutput;
             public CompilerInvocation Compiler;
             public List<string> CompilerProbePaths;
+            public List<string> CompilerProbeFailures;
             public List<CompilerDiagnostic> CompilerDiagnostics;
 
             public void OnLogMessageReceived(string condition, string stackTrace, LogType type)

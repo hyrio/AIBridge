@@ -290,7 +290,41 @@ namespace AIBridge.Editor.Tests
             var candidates = CodeCommand.GetCompilerCandidatePaths(contentsPath);
 
             Assert.That(candidates[0], Is.EqualTo(Path.Combine(contentsPath, "Tools", "Roslyn", "csc.exe")));
-            CollectionAssert.Contains(candidates, Path.Combine(contentsPath, "DotNetSdkRoslyn", "csc.dll"));
+            Assert.That(candidates[1], Is.EqualTo(Path.Combine(contentsPath, "DotNetSdkRoslyn", "csc.dll")));
+            CollectionAssert.Contains(
+                candidates,
+                Path.Combine(contentsPath, "MonoBleedingEdge", "lib", "mono", "msbuild", "Current", "bin", "Roslyn", "csc.exe"));
+        }
+
+        [Test]
+        public void ResolveDotNetProcessPath_PrefersBundledUnityRuntime()
+        {
+            var contentsPath = Path.Combine(Path.GetTempPath(), "AIBridgeCodeCommandTests", Guid.NewGuid().ToString("N"));
+#if UNITY_EDITOR_WIN
+            var dotNetFileName = "dotnet.exe";
+#else
+            var dotNetFileName = "dotnet";
+#endif
+            var dotNetPath = Path.Combine(contentsPath, "NetCoreRuntime", dotNetFileName);
+            Directory.CreateDirectory(Path.GetDirectoryName(dotNetPath));
+            File.WriteAllText(dotNetPath, string.Empty);
+
+            try
+            {
+                Assert.That(CodeCommand.ResolveDotNetProcessPath(contentsPath), Is.EqualTo(dotNetPath));
+            }
+            finally
+            {
+                Directory.Delete(contentsPath, true);
+            }
+        }
+
+        [Test]
+        public void ResolveDotNetProcessPath_FallsBackToDotNetCommand()
+        {
+            var contentsPath = Path.Combine(Path.GetTempPath(), "AIBridgeCodeCommandTests", Guid.NewGuid().ToString("N"));
+
+            Assert.That(CodeCommand.ResolveDotNetProcessPath(contentsPath), Is.EqualTo("dotnet"));
         }
 
         [Test]
