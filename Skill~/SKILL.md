@@ -1,6 +1,6 @@
 ---
 name: aibridge
-description: Unity Editor CLI integration for AIBridge. Use when Codex needs to compile Unity, inspect Console logs, search/read assets, manipulate GameObjects, Transforms, components, SerializedProperty values, scenes, screenshots/GIFs, simulate Play Mode runtime input, editor focus/menu items/game view, or look up AIBridgeCLI command syntax. For batch/multi scripts use aibridge-batch-script. For complex prefab asset edits use aibridge-prefab-patch. For unsupported direct Unity YAML serialized asset edits use unity-yaml-editing.
+description: Unity Editor and Player Runtime CLI integration for AIBridge. Use when Codex needs to compile Unity, inspect Console logs, search/read assets, manipulate GameObjects, Transforms, components, SerializedProperty values, scenes, screenshots/GIFs, connect to built Player runtime targets, simulate Play Mode runtime input, editor focus/menu items/game view, or look up AIBridgeCLI command syntax. For batch/multi scripts use aibridge-batch-script. For complex prefab asset edits use aibridge-prefab-patch. For unsupported direct Unity YAML serialized asset edits use unity-yaml-editing.
 ---
 
 # AI Bridge Unity Skill
@@ -29,7 +29,7 @@ Most Unity-side commands require an `action` such as `asset search` or `inspecto
 - `--json <json>` / `--stdin` - Complex parameters
 - `--help` - Show help
 
-**Cache Directory:** `.aibridge/` (commands, results, screenshots)
+**Cache Directory:** `.aibridge/` (Editor commands/results/screenshots, Runtime targets under `.aibridge/runtime/targets/`)
 
 **Dialog Output Rule:** `dialog status` omits `blockedByDialog` and `dialogs` when no blocking Unity modal dialog is detected. Missing fields mean no dialog.
 
@@ -45,6 +45,7 @@ Most Unity-side commands require an `action` such as `asset search` or `inspecto
 - In PowerShell, avoid inline complex `--json`; build JSON in a variable, escape embedded quotes for native EXE argument passing, and pass command parameters directly, especially `inspector set_properties --values $values`.
 - `focus` is Windows CLI-only. `dialog` is CLI-only, uses Windows window APIs or macOS Accessibility permission, and omits dialog fields when no modal dialog is detected. `screenshot game` and `screenshot gif` require Play Mode; `screenshot scene_view` works in Edit mode when a Scene view is open.
 - `input` requires Play Mode and an active EventSystem; use it with `gameview`, `screenshot`, and `get_logs` for UI interaction checks.
+- `runtime` is CLI-only and talks to `AIBridgeRuntime` inside a Player or Play Mode target. Use `runtime list_targets` first, then target `latest` or a specific target id.
 
 ## Related Resources
 
@@ -95,6 +96,20 @@ Play Mode only. Use the generated command reference for all actions and paramete
 ```bash
 $CLI input click --path "Canvas/StartButton"
 $CLI input drag --path "Canvas/Item" --toPath "Canvas/Slot" --frames 12
+```
+
+### `runtime` - Built Player Runtime Bridge
+
+Requires an `AIBridgeRuntime` component in the running Player or Play Mode scene. Use `--runtime-dir` when the Player was launched with a custom `--aibridge-runtime-dir`.
+Configure defaults in `AIBridge/Settings > Runtime`, and inspect live targets in `AIBridge/Players`.
+
+```bash
+$CLI runtime list_targets
+$CLI runtime status --target latest
+$CLI runtime logs --target latest --logType Error --count 100
+$CLI runtime screenshot --target latest
+$CLI runtime handlers --target latest
+$CLI runtime call --target latest --action qa.open_panel --json "{\"panel\":\"Inventory\"}"
 ```
 
 ---

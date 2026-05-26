@@ -54,7 +54,21 @@ namespace AIBridge.Editor
             public string SkillRootDirectory;
         }
 
-        public const int CurrentDataVersion = 8;
+        [Serializable]
+        internal sealed class RuntimeBridgeSettingsData
+        {
+            public bool EnableRuntimeBridge = DefaultRuntimeBridgeEnabled;
+            public bool AllowInReleaseBuild = DefaultRuntimeBridgeAllowInReleaseBuild;
+            public string ExchangeDirectory = DefaultRuntimeBridgeExchangeDirectory;
+            public string TargetId = DefaultRuntimeBridgeTargetId;
+            public string AuthToken = string.Empty;
+            public string AllowedActions = string.Empty;
+            public float HeartbeatIntervalSeconds = DefaultRuntimeBridgeHeartbeatIntervalSeconds;
+            public int LogBufferSize = DefaultRuntimeBridgeLogBufferSize;
+            public int MaxResultBytes = DefaultRuntimeBridgeMaxResultBytes;
+        }
+
+        public const int CurrentDataVersion = 9;
         public const string DefaultEditorLanguage = "English";
         public const string LegacySharedSkillRootDirectory = ".skills";
         public const string DefaultSkillRootDirectory = "";
@@ -68,6 +82,13 @@ namespace AIBridge.Editor
         public const string DefaultScriptDirectory = "Assets/AIBridgeScripts";
         public const bool DefaultEnableCodeExecution = true;
         public const bool DefaultCodeExecutionRiskAccepted = true;
+        public const bool DefaultRuntimeBridgeEnabled = true;
+        public const bool DefaultRuntimeBridgeAllowInReleaseBuild = false;
+        public const string DefaultRuntimeBridgeExchangeDirectory = "";
+        public const string DefaultRuntimeBridgeTargetId = "";
+        public const float DefaultRuntimeBridgeHeartbeatIntervalSeconds = 1f;
+        public const int DefaultRuntimeBridgeLogBufferSize = 500;
+        public const int DefaultRuntimeBridgeMaxResultBytes = 1048576;
         public static readonly string[] SupportedLogRetrievalTypes = { "all", "Log", "Warning", "Error" };
 
         [SerializeField] private int dataVersion = CurrentDataVersion;
@@ -86,6 +107,7 @@ namespace AIBridge.Editor
         [SerializeField] private bool autoInstallSkills = true;
         [SerializeField] private bool enableCodeExecution = DefaultEnableCodeExecution;
         [SerializeField] private bool codeExecutionRiskAccepted = DefaultCodeExecutionRiskAccepted;
+        [SerializeField] private RuntimeBridgeSettingsData runtimeBridge = new RuntimeBridgeSettingsData();
 
         public static AIBridgeProjectSettings Instance
         {
@@ -284,6 +306,34 @@ namespace AIBridge.Editor
         {
             get { return codeExecutionRiskAccepted; }
             set { codeExecutionRiskAccepted = value; }
+        }
+
+        public RuntimeBridgeSettingsData RuntimeBridge
+        {
+            get
+            {
+                if (runtimeBridge == null)
+                {
+                    runtimeBridge = new RuntimeBridgeSettingsData();
+                }
+
+                if (runtimeBridge.HeartbeatIntervalSeconds <= 0f)
+                {
+                    runtimeBridge.HeartbeatIntervalSeconds = DefaultRuntimeBridgeHeartbeatIntervalSeconds;
+                }
+
+                if (runtimeBridge.LogBufferSize <= 0)
+                {
+                    runtimeBridge.LogBufferSize = DefaultRuntimeBridgeLogBufferSize;
+                }
+
+                if (runtimeBridge.MaxResultBytes <= 0)
+                {
+                    runtimeBridge.MaxResultBytes = DefaultRuntimeBridgeMaxResultBytes;
+                }
+
+                return runtimeBridge;
+            }
         }
 
         public bool TryGetAssistantSelection(string targetId, out bool selected)
@@ -508,6 +558,11 @@ namespace AIBridge.Editor
             {
                 enableCodeExecution = DefaultEnableCodeExecution;
                 codeExecutionRiskAccepted = DefaultCodeExecutionRiskAccepted;
+            }
+
+            if (dataVersion < 9 && runtimeBridge == null)
+            {
+                runtimeBridge = new RuntimeBridgeSettingsData();
             }
 
             if (dataVersion != CurrentDataVersion)

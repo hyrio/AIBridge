@@ -198,6 +198,11 @@ namespace AIBridgeCLI
             }
 
             // Send command
+            if (parsed.CommandType.Equals("runtime", StringComparison.OrdinalIgnoreCase))
+            {
+                return HandleRuntimeCommand(parsed, request, timeout, noWait, outputMode);
+            }
+
             var sender = CreateCommandSender(timeout, parsed, request);
 
             if (noWait)

@@ -1,0 +1,219 @@
+using System;
+using System.Collections.Generic;
+using AIBridgeCLI.Core;
+using Newtonsoft.Json;
+
+namespace AIBridgeCLI.Commands
+{
+    public class RuntimeCommandBuilder : BaseCommandBuilder
+    {
+        public override string Type => "runtime";
+        public override string Description => "Connect to AIBridge Runtime in a built Player";
+
+        public override string[] Actions => new[]
+        {
+            "list_targets",
+            "ping",
+            "status",
+            "logs",
+            "screenshot",
+            "handlers",
+            "call"
+        };
+
+        protected override Dictionary<string, List<ParameterInfo>> ActionParameters => new Dictionary<string, List<ParameterInfo>>
+        {
+            ["list_targets"] = CommonTargetParameters(),
+            ["ping"] = CommonTargetParameters(),
+            ["status"] = CommonTargetParameters(),
+            ["logs"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
+                new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("count", "Maximum number of log entries", false, "50"),
+                new ParameterInfo("logType", "Filter by type: all, Log, Warning, Error, Exception, Assert", false, "all"),
+                new ParameterInfo("regex", "Filter by message regex", false),
+                new ParameterInfo("includeStackTrace", "Include stack traces", false, "false"),
+                new ParameterInfo("token", "Optional runtime auth token", false)
+            },
+            ["screenshot"] = CommonTargetParameters(),
+            ["handlers"] = CommonTargetParameters(),
+            ["call"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("action", "Registered runtime business action", true),
+                new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
+                new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("json", "JSON parameters passed to the runtime handler", false),
+                new ParameterInfo("token", "Optional runtime auth token", false)
+            }
+        };
+
+        public override CommandRequest Build(string action, Dictionary<string, string> options)
+        {
+            var normalizedAction = string.IsNullOrWhiteSpace(action) ? "status" : action.Trim();
+            var request = new CommandRequest
+            {
+                id = PathHelper.GenerateCommandId(),
+                type = Type,
+                @params = new Dictionary<string, object>()
+            };
+
+            if (options.TryGetValue("token", out var token) && !string.IsNullOrEmpty(token))
+            {
+                request.@params["token"] = token;
+            }
+
+            switch (normalizedAction.ToLowerInvariant())
+            {
+                case "list_targets":
+                    request.@params["action"] = "runtime.list_targets";
+                    return request;
+                case "ping":
+                    request.@params["action"] = "runtime.ping";
+                    break;
+                case "status":
+                    request.@params["action"] = "runtime.status";
+                    break;
+                case "logs":
+                    request.@params["action"] = "runtime.logs";
+                    CopyOptions(request, options, includeJson: false, excludeActionOption: false);
+                    break;
+                case "screenshot":
+                    request.@params["action"] = "runtime.screenshot";
+                    CopyOptions(request, options, includeJson: false, excludeActionOption: false);
+                    break;
+                case "handlers":
+                    request.@params["action"] = "runtime.handlers";
+                    break;
+                case "call":
+                    BuildCallRequest(request, options);
+                    break;
+                default:
+                    throw new ArgumentException($"Unknown runtime action: {normalizedAction}");
+            }
+
+            return request;
+        }
+
+        private static void BuildCallRequest(CommandRequest request, Dictionary<string, string> options)
+        {
+            var hasAction = options.TryGetValue("action", out var businessAction) && !string.IsNullOrWhiteSpace(businessAction);
+            if (!hasAction)
+            {
+                throw new ArgumentException("Missing required parameter: --action");
+            }
+
+            request.@params["action"] = businessAction;
+            CopyJsonParams(request, options);
+            CopyOptions(request, options, includeJson: false, excludeActionOption: true);
+        }
+
+        private static void CopyJsonParams(CommandRequest request, Dictionary<string, string> options)
+        {
+            if (!options.TryGetValue("json", out var jsonValue) || string.IsNullOrWhiteSpace(jsonValue))
+            {
+                return;
+            }
+
+            try
+            {
+                var jsonParams = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonValue);
+                if (jsonParams == null)
+                {
+                    return;
+                }
+
+                foreach (var kvp in jsonParams)
+                {
+                    if (!string.Equals(kvp.Key, "action", StringComparison.OrdinalIgnoreCase))
+                    {
+                        request.@params[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new ArgumentException($"Invalid JSON in --json parameter: {ex.Message}");
+            }
+        }
+
+        private static void CopyOptions(
+            CommandRequest request,
+            Dictionary<string, string> options,
+            bool includeJson,
+            bool excludeActionOption)
+        {
+            foreach (var kvp in options)
+            {
+                if (IsGlobalOption(kvp.Key) || (!includeJson && string.Equals(kvp.Key, "json", StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                if (excludeActionOption && string.Equals(kvp.Key, "action", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                request.@params[kvp.Key] = ParseStaticValue(kvp.Value);
+            }
+        }
+
+        private static bool IsGlobalOption(string key)
+        {
+            return string.Equals(key, "stdin", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "timeout", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "transport-timeout", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "poll-interval", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "no-wait", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "raw", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "pretty", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "quiet", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "help", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "on-dialog", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "target", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "runtime-dir", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "token", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static object ParseStaticValue(string value)
+        {
+            if (value == null)
+            {
+                return null;
+            }
+
+            if (value.Equals("true", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (value.Equals("false", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (long.TryParse(value, out var longValue))
+            {
+                return longValue;
+            }
+
+            if (double.TryParse(value, out var doubleValue))
+            {
+                return doubleValue;
+            }
+
+            return value;
+        }
+
+        private static List<ParameterInfo> CommonTargetParameters()
+        {
+            return new List<ParameterInfo>
+            {
+                new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
+                new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("token", "Optional runtime auth token", false)
+            };
+        }
+    }
+}

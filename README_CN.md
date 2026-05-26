@@ -11,7 +11,7 @@
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
-AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor 之间建立稳定的 CLI 桥接。它可以让 AI 定位真实 Unity 资源路径、检查场景和 Prefab、通过 Unity API 编辑对象、执行 Unity 编译、读取 Console 日志、运行批处理流程、执行测试，模拟 UGUI/EventSystem 运行时点击与拖拽，并用截图或 GIF 做视觉验证。
+AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor / Player Runtime 之间建立稳定的 CLI 桥接。它可以让 AI 定位真实 Unity 资源路径、检查场景和 Prefab、通过 Unity API 编辑对象、执行 Unity 编译、读取 Console 日志、运行批处理流程、执行测试，模拟 UGUI/EventSystem 运行时点击与拖拽，连接已编译 Player 查询状态、日志和截图，并用截图或 GIF 做视觉验证。
 
 它面向 AI 真实参与 Unity 项目开发的场景，而不是只生成代码建议。
 
@@ -33,6 +33,7 @@ AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor 之
 - **Unity 资源和对象检查**：查找资源、读取场景层级、检查组件和 SerializedProperty，并通过 Unity API 执行安全写入。
 - **Prefab 和场景自动化**：支持简单 Inspector 字段修改、Prefab Patch dry-run、多步骤批处理和跨域重载后的任务继续。
 - **UGUI 运行时输入模拟**：Play Mode 下通过 `input` 命令模拟点击、坐标点击、拖拽和长按，适合验证按钮、背包拖放、运行时面板等基于 EventSystem 的交互。
+- **Player Runtime Bridge**：已编译 Player 中的 `AIBridgeRuntime` 可暴露运行时状态、日志、截图和项目白名单 handler，适合 Development Build 调试和 QA 冒烟验证。
 - **Roslyn 临时 C# 执行**：通过受控的 `code execute` 在 Unity Editor 内执行 `.aibridge/code/*.cs` 或 `.csx` 临时脚本，用于复杂一次性资源生成、结构化分析、诊断和 Runtime/Public API 调用。该能力在设置中默认启用，不可信项目或调用方环境中可在设置里关闭。
 - **视觉和日志验证**：支持 Game/Scene 视图截图、GIF、Console 日志读取、Unity 编译和测试命令，帮助 AI 闭环确认改动结果。
 
@@ -41,6 +42,7 @@ AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor 之
 - Unity 2019.4 或更高版本。
 - .NET 8.0 Runtime，用于随包 CLI。
 - Unity 侧命令需要 Unity Editor 正在运行，例如 `compile unity`、`asset`、`scene`、`inspector`、`prefab`、`input`、`screenshot`、`code`、`get_logs`。
+- `runtime` 命令需要 Player 或 Play Mode 场景中存在 `AIBridgeRuntime` 组件；Release Build 默认关闭 Runtime Bridge，需项目显式开启。
 
 ## 安装
 
@@ -236,6 +238,23 @@ $CLI editor stop
 ```
 
 Game 视图截图、GIF 捕获和 `input` 命令都需要 Play Mode。Scene 视图截图只需要 Unity Editor 中存在 Scene 视图，可在 Edit Mode 使用。运行时 UI 推荐流程是进入 Play Mode，检查场景层级，执行 `input`，读取 Error 日志，再用截图或 GIF 复核画面。
+
+### 已编译 Player Runtime Bridge
+
+`runtime` 命令用于连接 Player 或 Play Mode 中的 `AIBridgeRuntime`。默认目标目录是 `.aibridge/runtime/targets/`；已编译 Player 可通过启动参数 `--aibridge-runtime-dir <path>` 和 `--aibridge-target-id <id>` 指定。
+
+可在 `AIBridge/Settings > Runtime` 配置默认开关、Release Build 允许项、Runtime 目录、TargetId、Auth Token、Allowed Actions 和日志缓存。`AIBridge/Players` 面板可查看当前 heartbeat 可发现的 Players、状态、场景、平台和常用 CLI 命令。
+
+```bash
+$CLI runtime list_targets
+$CLI runtime status --target latest
+$CLI runtime logs --target latest --logType Error --count 100
+$CLI runtime screenshot --target latest
+$CLI runtime handlers --target latest
+$CLI runtime call --target latest --action qa.open_panel --json "{\"panel\":\"Inventory\"}"
+```
+
+Runtime Bridge v1 只提供状态、日志、截图和显式注册 handler 调用，不包含游戏内 LLM、任意 C# 执行或无白名单反射调用。Release Build 默认关闭，项目需要自行确认安全边界后再开启。
 
 ### Roslyn 临时 C# 执行
 

@@ -20,6 +20,16 @@ namespace AIBridge.Runtime
         public string Action;
 
         /// <summary>
+        /// Optional command type for CLI-compatible runtime requests.
+        /// </summary>
+        public string Type;
+
+        /// <summary>
+        /// Optional shared token. Empty runtime settings do not require it.
+        /// </summary>
+        public string Token;
+
+        /// <summary>
         /// Panel name for targeting UI elements (optional, for UI frameworks)
         /// </summary>
         public string PanelName;
@@ -51,14 +61,34 @@ namespace AIBridge.Runtime
                 return null;
             }
 
+            var paramsData = GetDictionary(data, "Params") ?? GetDictionary(data, "params");
+            var action = GetString(data, "Action") ?? GetString(data, "action");
+            if (string.IsNullOrEmpty(action) && paramsData != null)
+            {
+                action = GetString(paramsData, "action");
+            }
+
+            var token = GetString(data, "Token") ?? GetString(data, "token");
+            if (string.IsNullOrEmpty(token) && paramsData != null)
+            {
+                token = GetString(paramsData, "token");
+            }
+
+            if (paramsData != null)
+            {
+                paramsData.Remove("token");
+            }
+
             var command = new AIBridgeRuntimeCommand
             {
                 Id = GetString(data, "Id") ?? GetString(data, "id"),
-                Action = GetString(data, "Action") ?? GetString(data, "action"),
+                Type = GetString(data, "Type") ?? GetString(data, "type"),
+                Action = action,
+                Token = token,
                 PanelName = GetString(data, "PanelName") ?? GetString(data, "panelName"),
                 EventName = GetString(data, "EventName") ?? GetString(data, "eventName"),
                 ViewName = GetString(data, "ViewName") ?? GetString(data, "viewName"),
-                Params = GetDictionary(data, "Params") ?? GetDictionary(data, "params"),
+                Params = paramsData,
                 Timestamp = GetLong(data, "Timestamp") ?? GetLong(data, "timestamp") ?? 0L
             };
 

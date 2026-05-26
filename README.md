@@ -11,7 +11,7 @@ English | [中文](./README_CN.md)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
-AIBridge is a Unity package that gives AI coding assistants a stable CLI bridge into Unity Editor. It lets agents resolve real Unity asset paths, inspect scenes and prefabs, edit objects through Unity APIs, run Unity compilation, read Console logs, execute batch workflows, run tests, simulate UGUI/EventSystem runtime clicks and drags, and capture screenshots or GIFs for visual verification.
+AIBridge is a Unity package that gives AI coding assistants a stable CLI bridge into Unity Editor and Player Runtime. It lets agents resolve real Unity asset paths, inspect scenes and prefabs, edit objects through Unity APIs, run Unity compilation, read Console logs, execute batch workflows, run tests, simulate UGUI/EventSystem runtime clicks and drags, connect to built Players for runtime state/log/screenshot checks, and capture screenshots or GIFs for visual verification.
 
 The package is designed for AI-assisted Unity development where the assistant must validate changes inside the Editor, not only edit files.
 
@@ -33,6 +33,7 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 - **Unity asset and object inspection**: find assets, read scene hierarchies, inspect components and SerializedProperty values, then write through Unity-aware APIs.
 - **Prefab and scene automation**: use simple Inspector field edits, Prefab Patch dry-runs, multi-step batch scripts, and task continuation across domain reloads.
 - **UGUI runtime input simulation**: in Play Mode, the `input` command can click, click screen coordinates, drag, and long-press EventSystem UI for button, inventory, and runtime panel checks.
+- **Player Runtime Bridge**: an `AIBridgeRuntime` component inside a built Player can expose runtime status, logs, screenshots, and project allowlisted handlers for Development Build debugging and QA smoke checks.
 - **Roslyn temporary C# execution**: controlled `code execute` runs `.aibridge/code/*.cs` or `.csx` temporary scripts inside Unity Editor for complex one-off asset generation, structured analysis, diagnostics, and Runtime/Public API calls. It is enabled by default in Settings and can be disabled there for untrusted projects or callers.
 - **Visual and log validation**: capture Game/Scene view screenshots or GIFs, read Console logs, run Unity compilation, and invoke tests so agents can close the loop on changes.
 
@@ -41,6 +42,7 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 - Unity 2019.4 or later.
 - .NET 8.0 Runtime for the bundled CLI.
 - Unity Editor must be running for Unity-side commands such as `compile unity`, `asset`, `scene`, `inspector`, `prefab`, `input`, `screenshot`, `code`, and `get_logs`.
+- `runtime` commands require an `AIBridgeRuntime` component in the Player or Play Mode scene. Runtime Bridge is disabled by default in Release Builds unless the project explicitly enables it.
 
 ## Installation
 
@@ -236,6 +238,23 @@ $CLI editor stop
 ```
 
 Game view screenshots, GIF capture, and `input` commands require Play Mode. Scene view screenshots work in Edit mode when a Scene view is open. A typical runtime UI flow is to enter Play Mode, inspect the scene hierarchy, run `input`, read Error logs, then verify the frame with a screenshot or GIF.
+
+### Built Player Runtime Bridge
+
+The `runtime` command connects to `AIBridgeRuntime` inside a Player or Play Mode scene. The default target directory is `.aibridge/runtime/targets/`; built Players can pass `--aibridge-runtime-dir <path>` and `--aibridge-target-id <id>` at launch.
+
+Use `AIBridge/Settings > Runtime` to configure default enablement, Release Build allowance, runtime directory, TargetId, auth token, allowed actions, and log buffer size. Use `AIBridge/Players` to inspect heartbeat-discovered Players, status, scene, platform, and common CLI commands.
+
+```bash
+$CLI runtime list_targets
+$CLI runtime status --target latest
+$CLI runtime logs --target latest --logType Error --count 100
+$CLI runtime screenshot --target latest
+$CLI runtime handlers --target latest
+$CLI runtime call --target latest --action qa.open_panel --json "{\"panel\":\"Inventory\"}"
+```
+
+Runtime Bridge v1 only provides status, logs, screenshots, and explicitly registered handler calls. It does not include in-game LLMs, arbitrary C# execution, or unallowlisted reflection calls. Release Builds are off by default and should only enable this bridge after the project accepts the security boundary.
 
 ### Roslyn Temporary C# Execution
 

@@ -2,9 +2,7 @@
     "name": "cn.lys.aibridge.Runtime",
     "rootNamespace": "AIBridge.Runtime",
     "references": [],
-    "includePlatforms": [
-        "Editor"
-    ],
+    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
