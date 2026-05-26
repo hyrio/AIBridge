@@ -31,7 +31,7 @@ namespace AIBridge.Editor.Tests
             }
         }
 
-        protected static RecommendedSkillRepository CreateRecommendedSkillRepository()
+        internal static RecommendedSkillRepository CreateRecommendedSkillRepository()
         {
             return new RecommendedSkillRepository
             {
