@@ -34,7 +34,7 @@ AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor 之
 - **Prefab 和场景自动化**：支持简单 Inspector 字段修改、Prefab Patch dry-run、多步骤批处理和跨域重载后的任务继续。
 - **UGUI 运行时输入模拟**：Play Mode 下通过 `input` 命令模拟点击、坐标点击、拖拽和长按，适合验证按钮、背包拖放、运行时面板等基于 EventSystem 的交互。
 - **Roslyn 临时 C# 执行**：通过受控的 `code execute` 在 Unity Editor 内执行 `.aibridge/code/*.cs` 或 `.csx` 临时脚本，用于复杂一次性资源生成、结构化分析、诊断和 Runtime/Public API 调用。该能力在设置中默认启用，不可信项目或调用方环境中可在设置里关闭。
-- **视觉和日志验证**：支持 Game 视图截图、GIF、Console 日志读取、Unity 编译和测试命令，帮助 AI 闭环确认改动结果。
+- **视觉和日志验证**：支持 Game/Scene 视图截图、GIF、Console 日志读取、Unity 编译和测试命令，帮助 AI 闭环确认改动结果。
 
 ## 系统要求
 
@@ -229,11 +229,13 @@ $CLI gameview get_resolution
 $CLI gameview set_resolution --width 1920 --height 1080
 $CLI gameview list_resolutions
 $CLI screenshot game
+$CLI screenshot scene_view
+$CLI screenshot scene_view --width 1920 --height 1080
 $CLI screenshot gif --frameCount 50 --fps 20 --scale 0.5
 $CLI editor stop
 ```
 
-Game 视图截图、GIF 捕获和 `input` 命令都需要 Play Mode。推荐流程是进入 Play Mode，检查场景层级，执行 `input`，读取 Error 日志，再用截图或 GIF 复核画面。
+Game 视图截图、GIF 捕获和 `input` 命令都需要 Play Mode。Scene 视图截图只需要 Unity Editor 中存在 Scene 视图，可在 Edit Mode 使用。运行时 UI 推荐流程是进入 Play Mode，检查场景层级，执行 `input`，读取 Error 日志，再用截图或 GIF 复核画面。
 
 ### Roslyn 临时 C# 执行
 

@@ -34,7 +34,7 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 - **Prefab and scene automation**: use simple Inspector field edits, Prefab Patch dry-runs, multi-step batch scripts, and task continuation across domain reloads.
 - **UGUI runtime input simulation**: in Play Mode, the `input` command can click, click screen coordinates, drag, and long-press EventSystem UI for button, inventory, and runtime panel checks.
 - **Roslyn temporary C# execution**: controlled `code execute` runs `.aibridge/code/*.cs` or `.csx` temporary scripts inside Unity Editor for complex one-off asset generation, structured analysis, diagnostics, and Runtime/Public API calls. It is enabled by default in Settings and can be disabled there for untrusted projects or callers.
-- **Visual and log validation**: capture Game view screenshots or GIFs, read Console logs, run Unity compilation, and invoke tests so agents can close the loop on changes.
+- **Visual and log validation**: capture Game/Scene view screenshots or GIFs, read Console logs, run Unity compilation, and invoke tests so agents can close the loop on changes.
 
 ## Requirements
 
@@ -229,11 +229,13 @@ $CLI gameview get_resolution
 $CLI gameview set_resolution --width 1920 --height 1080
 $CLI gameview list_resolutions
 $CLI screenshot game
+$CLI screenshot scene_view
+$CLI screenshot scene_view --width 1920 --height 1080
 $CLI screenshot gif --frameCount 50 --fps 20 --scale 0.5
 $CLI editor stop
 ```
 
-Game view screenshots, GIF capture, and `input` commands require Play Mode. A typical flow is to enter Play Mode, inspect the scene hierarchy, run `input`, read Error logs, then verify the frame with a screenshot or GIF.
+Game view screenshots, GIF capture, and `input` commands require Play Mode. Scene view screenshots work in Edit mode when a Scene view is open. A typical runtime UI flow is to enter Play Mode, inspect the scene hierarchy, run `input`, read Error logs, then verify the frame with a screenshot or GIF.
 
 ### Roslyn Temporary C# Execution
 

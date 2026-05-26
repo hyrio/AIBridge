@@ -7,23 +7,34 @@ using UnityEngine;
 namespace AIBridge.Editor
 {
     /// <summary>
-    /// Screenshot command: capture Game view screenshots and GIF recordings.
-    /// Supports runtime (Play mode) screenshots and animated GIF capture.
+    /// Screenshot command: capture Game view, Scene view screenshots and GIF recordings.
+    /// Supports runtime (Play mode) screenshots, Scene view screenshots and animated GIF capture.
     /// </summary>
     public class ScreenshotCommand : ICommand
     {
         public string Type => "screenshot";
         public bool RequiresRefresh => false;
 
-        public string SkillDescription => @"### `screenshot` - Screenshot & GIF Recording (Play Mode)
+        public string SkillDescription => @"### `screenshot` - Screenshot & GIF Recording
 
-**Requires Play mode.** Files saved to `.aibridge/screenshots/`.
+Files saved to `.aibridge/screenshots/`.
 
 ```bash
 $CLI screenshot game  # Capture Game view screenshot (JPG)
+$CLI screenshot scene_view  # Capture Scene view screenshot (JPG, Edit/Play mode)
+$CLI screenshot scene_view --width 1920 --height 1080
 $CLI screenshot gif --frameCount 50  # Record GIF
 $CLI screenshot gif --frameCount 100 --fps 25 --scale 0.5 --colorCount 128
 ```
+
+`game` and `gif` require Play mode. `scene_view` captures the last active Scene view and works in Edit mode.
+
+**Scene View Parameters:**
+
+| Parameter | Range | Default | Description |
+|-----------|-------|---------|-------------|
+| `--width` | 1-8192 | Scene view camera width | Output image width |
+| `--height` | 1-8192 | Scene view camera height | Output image height |
 
 **GIF Parameters:**
 
@@ -58,10 +69,12 @@ $CLI screenshot gif --frameCount 100 --fps 25 --scale 0.5 --colorCount 128
                 {
                     case "game":
                         return CaptureGameView(request);
+                    case "scene_view":
+                        return CaptureSceneView(request);
                     case "gif":
                         return CaptureGif(request);
                     default:
-                        return CommandResult.Failure(request.id, $"Unknown action: {action}. Supported: game, gif");
+                        return CommandResult.Failure(request.id, $"Unknown action: {action}. Supported: game, scene_view, gif");
                 }
             }
             catch (Exception ex)
@@ -83,6 +96,29 @@ $CLI screenshot gif --frameCount 100 --fps 25 --scale 0.5 --colorCount 128
             return CommandResult.Success(request.id, new
             {
                 action = "game",
+                imagePath = result.ImagePath,
+                width = result.Width,
+                height = result.Height,
+                timestamp = result.Timestamp,
+                filename = result.Filename
+            });
+        }
+
+        private CommandResult CaptureSceneView(CommandRequest request)
+        {
+            int width = request.GetParam("width", 0);
+            int height = request.GetParam("height", 0);
+
+            var result = ScreenshotHelper.CaptureSceneView(width, height);
+
+            if (!result.Success)
+            {
+                return CommandResult.Failure(request.id, result.Error);
+            }
+
+            return CommandResult.Success(request.id, new
+            {
+                action = "scene_view",
                 imagePath = result.ImagePath,
                 width = result.Width,
                 height = result.Height,

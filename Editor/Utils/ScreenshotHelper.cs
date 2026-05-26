@@ -39,6 +39,9 @@ namespace AIBridge.Editor
     /// </summary>
     public static class ScreenshotHelper
     {
+        private const int JpegQuality = 85;
+        private const int MaxScreenshotDimension = 8192;
+
         private static string _screenshotsDir;
 
         // Cached flip buffer for frame capture (reused across frames)
@@ -83,10 +86,6 @@ namespace AIBridge.Editor
 
             EnsureScreenshotsDirectory();
 
-            var timestamp = DateTime.Now;
-            var filename = $"game_{timestamp:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString("N").Substring(0, 8)}.jpg";
-            var fullPath = Path.Combine(ScreenshotsDir, filename);
-
             try
             {
                 var texture2D = CaptureGameViewTexture();
@@ -99,25 +98,7 @@ namespace AIBridge.Editor
                     };
                 }
 
-                int width = texture2D.width;
-                int height = texture2D.height;
-
-                var jpgData = texture2D.EncodeToJPG(85);
-                File.WriteAllBytes(fullPath, jpgData);
-
-                UnityEngine.Object.DestroyImmediate(texture2D);
-
-                AIBridgeLogger.LogInfo($"Screenshot saved: {fullPath}");
-
-                return new ScreenshotResult
-                {
-                    Success = true,
-                    ImagePath = fullPath,
-                    Filename = filename,
-                    Width = width,
-                    Height = height,
-                    Timestamp = timestamp.ToString("yyyy-MM-ddTHH:mm:ss")
-                };
+                return SaveScreenshotTexture(texture2D, "game", "Game view");
             }
             catch (Exception ex)
             {
@@ -125,6 +106,40 @@ namespace AIBridge.Editor
                 {
                     Success = false,
                     Error = $"Failed to capture screenshot: {ex.Message}"
+                };
+            }
+        }
+
+        /// <summary>
+        /// 捕获 Scene 视图截图。
+        /// </summary>
+        public static ScreenshotResult CaptureSceneView(int width = 0, int height = 0)
+        {
+            EnsureScreenshotsDirectory();
+
+            try
+            {
+                string error;
+                var texture2D = CaptureSceneViewTexture(width, height, out error);
+                if (texture2D == null)
+                {
+                    return new ScreenshotResult
+                    {
+                        Success = false,
+                        Error = string.IsNullOrEmpty(error)
+                            ? "Failed to capture Scene view. Ensure a Scene view is open in the Unity Editor."
+                            : error
+                    };
+                }
+
+                return SaveScreenshotTexture(texture2D, "scene_view", "Scene view");
+            }
+            catch (Exception ex)
+            {
+                return new ScreenshotResult
+                {
+                    Success = false,
+                    Error = $"Failed to capture Scene view screenshot: {ex.Message}"
                 };
             }
         }
@@ -244,6 +259,125 @@ namespace AIBridge.Editor
         }
 
         /// <summary>
+        /// 通过复制 SceneView 相机到临时相机完成截图，避免修改编辑器窗口内部相机状态。
+        /// </summary>
+        private static Texture2D CaptureSceneViewTexture(int requestedWidth, int requestedHeight, out string error)
+        {
+            error = null;
+
+            if (requestedWidth < 0 || requestedHeight < 0)
+            {
+                error = "Parameters 'width' and 'height' must be positive integers when specified.";
+                return null;
+            }
+
+            if ((requestedWidth > 0 && requestedHeight <= 0) ||
+                (requestedHeight > 0 && requestedWidth <= 0))
+            {
+                error = "Parameters 'width' and 'height' must be specified together.";
+                return null;
+            }
+
+            if (requestedWidth > MaxScreenshotDimension || requestedHeight > MaxScreenshotDimension)
+            {
+                error = $"Scene view screenshot size exceeds maximum allowed ({MaxScreenshotDimension}x{MaxScreenshotDimension}).";
+                return null;
+            }
+
+            var sceneView = GetSceneViewWindow();
+            if (sceneView == null)
+            {
+                error = "No Scene view window found. Open the Scene view in the Unity Editor first.";
+                return null;
+            }
+
+            var sourceCamera = sceneView.camera;
+            if (sourceCamera == null)
+            {
+                error = "Scene view camera is not available.";
+                return null;
+            }
+
+            var width = requestedWidth;
+            var height = requestedHeight;
+
+            if (width <= 0 || height <= 0)
+            {
+                width = sourceCamera.pixelWidth;
+                height = sourceCamera.pixelHeight;
+            }
+
+            if (width <= 0 || height <= 0)
+            {
+                width = Mathf.RoundToInt(sceneView.position.width);
+                height = Mathf.RoundToInt(sceneView.position.height);
+            }
+
+            width = Mathf.Clamp(width, 1, MaxScreenshotDimension);
+            height = Mathf.Clamp(height, 1, MaxScreenshotDimension);
+
+            RenderTexture rt = null;
+            var previousActive = RenderTexture.active;
+            GameObject cameraObject = null;
+            Camera captureCamera = null;
+            Texture2D texture2D = null;
+
+            try
+            {
+                rt = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.ARGB32);
+                rt.Create();
+
+                // 使用临时相机渲染，避免直接操作 SceneView.camera 带来的编辑器状态污染。
+                cameraObject = new GameObject("AIBridge SceneView Capture Camera");
+                cameraObject.hideFlags = HideFlags.HideAndDontSave;
+
+                captureCamera = cameraObject.AddComponent<Camera>();
+                captureCamera.enabled = false;
+                captureCamera.CopyFrom(sourceCamera);
+                captureCamera.targetTexture = rt;
+                captureCamera.Render();
+
+                texture2D = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                RenderTexture.active = rt;
+                texture2D.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                texture2D.Apply();
+
+                var result = texture2D;
+                texture2D = null;
+                return result;
+            }
+            catch (Exception ex)
+            {
+                if (texture2D != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(texture2D);
+                }
+
+                error = $"Failed to render Scene view camera: {ex.Message}";
+                return null;
+            }
+            finally
+            {
+                RenderTexture.active = previousActive;
+
+                if (captureCamera != null)
+                {
+                    captureCamera.targetTexture = null;
+                }
+
+                if (rt != null)
+                {
+                    RenderTexture.ReleaseTemporary(rt);
+                }
+
+                if (cameraObject != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(cameraObject);
+                }
+            }
+        }
+
+        /// <summary>
         /// Get the Game view's internal RenderTexture via reflection.
         /// Searches GameView and its base class PlayModeView for the m_RenderTexture field.
         /// </summary>
@@ -296,6 +430,81 @@ namespace AIBridge.Editor
             }
 
             return null;
+        }
+
+        private static SceneView GetSceneViewWindow()
+        {
+            if (SceneView.lastActiveSceneView != null)
+            {
+                return SceneView.lastActiveSceneView;
+            }
+
+            var sceneViews = SceneView.sceneViews;
+            if (sceneViews != null)
+            {
+                for (int i = 0; i < sceneViews.Count; i++)
+                {
+                    var sceneView = sceneViews[i] as SceneView;
+                    if (sceneView != null)
+                    {
+                        return sceneView;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static ScreenshotResult SaveScreenshotTexture(Texture2D texture2D, string filePrefix, string logLabel)
+        {
+            if (texture2D == null)
+            {
+                return new ScreenshotResult
+                {
+                    Success = false,
+                    Error = $"Failed to capture {logLabel} screenshot."
+                };
+            }
+
+            var timestamp = DateTime.Now;
+            var filename = $"{filePrefix}_{timestamp:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString("N").Substring(0, 8)}.jpg";
+            var fullPath = Path.Combine(ScreenshotsDir, filename);
+
+            try
+            {
+                int width = texture2D.width;
+                int height = texture2D.height;
+
+                var jpgData = texture2D.EncodeToJPG(JpegQuality);
+                File.WriteAllBytes(fullPath, jpgData);
+
+                AIBridgeLogger.LogInfo($"{logLabel} screenshot saved: {fullPath}");
+
+                return new ScreenshotResult
+                {
+                    Success = true,
+                    ImagePath = fullPath,
+                    Filename = filename,
+                    Width = width,
+                    Height = height,
+                    Timestamp = timestamp.ToString("yyyy-MM-ddTHH:mm:ss")
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ScreenshotResult
+                {
+                    Success = false,
+                    Error = $"Failed to save {logLabel} screenshot: {ex.Message}"
+                };
+            }
+            finally
+            {
+                if (texture2D != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(texture2D);
+                }
+            }
         }
 
         /// <summary>
