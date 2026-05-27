@@ -37,14 +37,15 @@ namespace AIBridgeCLI.Core
         public IReadOnlyList<RuntimeTargetInfo> ListTargets()
         {
             var targets = new List<RuntimeTargetInfo>();
-            AddTargetFromHealth(targets, _options.HttpUrl, TryGetHealth(_options.HttpUrl));
-
             var cached = RuntimeDiscoveryClient.ReadFreshCache(RuntimeDiscoveryClient.DefaultCacheSeconds);
+            AddTargetFromHealth(targets, _options.HttpUrl, TryGetHealth(_options.HttpUrl), FindCachedTargetByUrl(cached, _options.HttpUrl));
             for (var i = 0; i < cached.Count; i++)
             {
                 var target = cached[i];
-                if (string.IsNullOrWhiteSpace(target.url)
-                    || ContainsTarget(targets, target.targetId, target.url))
+                var targetUrl = target.reachableUrl ?? target.url;
+                if (string.IsNullOrWhiteSpace(targetUrl)
+                    || !RuntimeDiscoveryClient.MatchesRuntimeFilters(target, _options.PreferredPlatform, _options.PreferredProjectHint)
+                    || ContainsTarget(targets, target.targetId, targetUrl))
                 {
                     continue;
                 }
@@ -52,11 +53,19 @@ namespace AIBridgeCLI.Core
                 targets.Add(new RuntimeTargetInfo
                 {
                     targetId = target.targetId,
-                    path = target.url,
-                    heartbeatPath = target.url.TrimEnd('/') + "/aibridge/health",
-                    commandsPath = target.url.TrimEnd('/') + "/aibridge/commands",
-                    resultsPath = target.url.TrimEnd('/') + "/aibridge/results",
-                    screenshotsPath = target.url,
+                    path = targetUrl,
+                    heartbeatPath = targetUrl.TrimEnd('/') + "/aibridge/health",
+                    commandsPath = targetUrl.TrimEnd('/') + "/aibridge/commands",
+                    resultsPath = targetUrl.TrimEnd('/') + "/aibridge/results",
+                    screenshotsPath = targetUrl,
+                    source = target.source,
+                    platform = target.platform,
+                    projectName = target.projectName,
+                    deviceName = target.deviceName,
+                    targetKind = target.targetKind,
+                    reachable = target.reachable,
+                    connectionUrl = targetUrl,
+                    preferred = IsPreferredCachedTarget(target),
                     stale = false,
                     ageSeconds = 0,
                     lastHeartbeatUtc = target.lastSeenUtc,
@@ -64,7 +73,7 @@ namespace AIBridgeCLI.Core
                 });
             }
 
-            if (!_options.HttpUrlExplicit)
+            if (!_options.HttpUrlExplicit && !HasPreferredFilters())
             {
                 AddLocalPortScanTargets(targets);
             }
@@ -116,7 +125,7 @@ namespace AIBridgeCLI.Core
                 }
 
                 var beforeCount = targets.Count;
-                AddTargetFromHealth(targets, url, TryGetHealth(url));
+                AddTargetFromHealth(targets, url, TryGetHealth(url), null);
                 if (targets.Count > beforeCount)
                 {
                     foundAny = true;
@@ -137,14 +146,18 @@ namespace AIBridgeCLI.Core
             }
         }
 
-        private static void AddTargetFromHealth(List<RuntimeTargetInfo> targets, string baseUrl, JObject health)
+        private void AddTargetFromHealth(
+            List<RuntimeTargetInfo> targets,
+            string baseUrl,
+            JObject health,
+            RuntimeDiscoveryTarget fallback)
         {
             if (targets == null || health == null || string.IsNullOrWhiteSpace(baseUrl))
             {
                 return;
             }
 
-            var targetId = ReadString(health, "targetId");
+            var targetId = ReadString(health, "targetId") ?? (fallback == null ? null : fallback.targetId);
             if (string.IsNullOrWhiteSpace(targetId))
             {
                 targetId = "http";
@@ -156,6 +169,11 @@ namespace AIBridgeCLI.Core
             }
 
             var url = baseUrl.TrimEnd('/');
+            var platform = ReadString(health, "platform") ?? (fallback == null ? null : fallback.platform);
+            var projectName = ReadString(health, "productName")
+                ?? ReadString(health, "projectName")
+                ?? (fallback == null ? null : fallback.projectName);
+            var deviceName = ReadString(health, "deviceName") ?? (fallback == null ? null : fallback.deviceName);
             targets.Add(new RuntimeTargetInfo
             {
                 targetId = targetId,
@@ -164,9 +182,17 @@ namespace AIBridgeCLI.Core
                 commandsPath = url + "/aibridge/commands",
                 resultsPath = url + "/aibridge/results",
                 screenshotsPath = url,
+                source = "http-health",
+                platform = platform,
+                projectName = projectName,
+                deviceName = deviceName,
+                targetKind = ResolveTargetKind(health, platform, url, fallback == null ? null : fallback.targetKind),
+                reachable = true,
+                connectionUrl = url,
+                preferred = string.Equals(url, _options.HttpUrl, StringComparison.OrdinalIgnoreCase),
                 stale = false,
                 ageSeconds = 0,
-                lastHeartbeatUtc = ReadString(health, "lastHeartbeatUtc"),
+                lastHeartbeatUtc = ReadString(health, "lastHeartbeatUtc") ?? (fallback == null ? null : fallback.lastSeenUtc),
                 heartbeat = health
             });
         }
@@ -180,8 +206,26 @@ namespace AIBridgeCLI.Core
                     && string.Equals(existing.path, url.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)));
         }
 
-        private static int CompareTargets(RuntimeTargetInfo left, RuntimeTargetInfo right)
+        private int CompareTargets(RuntimeTargetInfo left, RuntimeTargetInfo right)
         {
+            var preferredCompare = CompareBoolTrueFirst(IsPreferredTarget(left), IsPreferredTarget(right));
+            if (preferredCompare != 0)
+            {
+                return preferredCompare;
+            }
+
+            var filterCompare = CompareBoolTrueFirst(MatchesPreferredFilters(left), MatchesPreferredFilters(right));
+            if (filterCompare != 0)
+            {
+                return filterCompare;
+            }
+
+            var rankCompare = GetTargetRank(left).CompareTo(GetTargetRank(right));
+            if (rankCompare != 0)
+            {
+                return rankCompare;
+            }
+
             var uptimeCompare = ReadUptimeSeconds(left).CompareTo(ReadUptimeSeconds(right));
             if (uptimeCompare != 0)
             {
@@ -229,6 +273,7 @@ namespace AIBridgeCLI.Core
                 });
                 var responseJson = SendJson(url, HttpMethod.Post, json, ResolveToken(request));
                 var result = RuntimeResultParser.Parse(request.id, responseJson);
+                TryAttachRuntimeStatusConnection(result, request, target);
                 TryPrepareScreenshotArtifact(result, request, target);
                 lock (_syncResults)
                 {
@@ -340,6 +385,10 @@ namespace AIBridgeCLI.Core
                         : "Authorization bearer token will be sent."
                 });
                 report.suggestions.Add("Run: $CLI runtime status --transport http --url " + diagnosticUrl);
+                if (!string.IsNullOrWhiteSpace(_options.PreferredPlatform))
+                {
+                    report.suggestions.Add("Filter is active: --platform " + _options.PreferredPlatform);
+                }
                 report.success = true;
                 report.summary = "Runtime HTTP transport diagnostics passed.";
                 return report;
@@ -499,6 +548,198 @@ namespace AIBridgeCLI.Core
                     result.error = "artifact_pull_failed: " + ex.Message;
                 }
             }
+        }
+
+        private void TryAttachRuntimeStatusConnection(CommandResult result, CommandRequest request, RuntimeTargetInfo target)
+        {
+            if (result == null
+                || !result.success
+                || request == null
+                || !string.Equals(RuntimePathHelper.GetRuntimeAction(request), "runtime.status", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var data = result.data as JObject;
+            if (data == null)
+            {
+                return;
+            }
+
+            var connectionUrl = target == null || string.IsNullOrWhiteSpace(target.path) ? _options.HttpUrl : target.path.TrimEnd('/');
+            var bindUrl = ReadString(data, "bindUrl") ?? ReadString(data, "httpUrl");
+            if (!string.IsNullOrWhiteSpace(bindUrl))
+            {
+                data["bindUrl"] = bindUrl;
+            }
+
+            // 远程 Player 返回的本机 bind URL 不能直接给 CLI 使用，HTTP status 输出优先呈现本次实际连接 URL。
+            data["httpUrl"] = connectionUrl;
+            data["reachableUrl"] = connectionUrl;
+            data["connectionUrl"] = connectionUrl;
+            data["healthUrl"] = BuildUrl(connectionUrl, "/aibridge/health");
+        }
+
+        private bool IsPreferredCachedTarget(RuntimeDiscoveryTarget target)
+        {
+            if (target == null)
+            {
+                return false;
+            }
+
+            var targetUrl = target.reachableUrl ?? target.url;
+            return !string.IsNullOrWhiteSpace(targetUrl)
+                && string.Equals(targetUrl.TrimEnd('/'), _options.HttpUrl, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool HasPreferredFilters()
+        {
+            return !string.IsNullOrWhiteSpace(_options.PreferredPlatform)
+                || !string.IsNullOrWhiteSpace(_options.PreferredProjectHint);
+        }
+
+        private bool MatchesPreferredFilters(RuntimeTargetInfo target)
+        {
+            if (target == null)
+            {
+                return false;
+            }
+
+            if (!HasPreferredFilters())
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_options.PreferredPlatform)
+                && !ContainsIgnoreCase(target.platform ?? ReadString(target.heartbeat, "platform"), _options.PreferredPlatform))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_options.PreferredProjectHint))
+            {
+                var projectName = target.projectName
+                    ?? ReadString(target.heartbeat, "projectName")
+                    ?? ReadString(target.heartbeat, "productName");
+                if (!string.Equals(projectName, _options.PreferredProjectHint, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool IsPreferredTarget(RuntimeTargetInfo target)
+        {
+            if (target == null)
+            {
+                return false;
+            }
+
+            if (target.preferred)
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(target.path)
+                && string.Equals(target.path.TrimEnd('/'), _options.HttpUrl, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int GetTargetRank(RuntimeTargetInfo target)
+        {
+            if (target == null)
+            {
+                return 100;
+            }
+
+            var platform = target.platform ?? ReadString(target.heartbeat, "platform");
+            if (ContainsIgnoreCase(platform, "Android"))
+            {
+                return 0;
+            }
+
+            if (!IsLoopbackUrl(target.path) && !ContainsIgnoreCase(target.targetKind, "virtual"))
+            {
+                return 1;
+            }
+
+            if (IsLoopbackUrl(target.path))
+            {
+                return 2;
+            }
+
+            return ContainsIgnoreCase(target.targetKind, "virtual") ? 3 : 4;
+        }
+
+        private static int CompareBoolTrueFirst(bool left, bool right)
+        {
+            if (left == right)
+            {
+                return 0;
+            }
+
+            return left ? -1 : 1;
+        }
+
+        private static bool IsLoopbackUrl(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                return false;
+            }
+
+            return uri.IsLoopback;
+        }
+
+        private static bool ContainsIgnoreCase(string value, string pattern)
+        {
+            return !string.IsNullOrWhiteSpace(value)
+                && !string.IsNullOrWhiteSpace(pattern)
+                && value.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static RuntimeDiscoveryTarget FindCachedTargetByUrl(List<RuntimeDiscoveryTarget> targets, string url)
+        {
+            if (targets == null || string.IsNullOrWhiteSpace(url))
+            {
+                return null;
+            }
+
+            var normalizedUrl = url.TrimEnd('/');
+            for (var i = 0; i < targets.Count; i++)
+            {
+                var target = targets[i];
+                var targetUrl = target == null ? null : (target.reachableUrl ?? target.url);
+                if (!string.IsNullOrWhiteSpace(targetUrl)
+                    && string.Equals(targetUrl.TrimEnd('/'), normalizedUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    return target;
+                }
+            }
+
+            return null;
+        }
+
+        private static string ResolveTargetKind(JObject health, string platform, string url, string fallback)
+        {
+            var targetKind = ReadString(health, "targetKind");
+            if (!string.IsNullOrWhiteSpace(targetKind))
+            {
+                return targetKind;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallback))
+            {
+                return fallback;
+            }
+
+            if (ContainsIgnoreCase(platform, "Android"))
+            {
+                return "android-player";
+            }
+
+            return IsLoopbackUrl(url) ? "local-player" : "remote-player";
         }
 
         private string BuildArtifactCachePath(string filename, RuntimeTargetInfo target)

@@ -34,13 +34,21 @@ namespace AIBridge.Editor
     {
         public string TargetId;
         public string Url;
+        public string ReachableUrl;
+        public string BindUrl;
         public string Platform;
         public string ProjectName;
         public string ApplicationVersion;
         public string DeviceName;
         public string LastSeenUtc;
+        public string LastHealthCheckUtc;
         public string RemoteEndPoint;
+        public string SourceInterface;
+        public string SourceInterfaceAddress;
+        public string SourceInterfaceDescription;
+        public string TargetKind;
         public bool RequiresToken;
+        public bool Reachable;
         public bool Stale;
         public double? AgeSeconds;
     }
@@ -209,7 +217,7 @@ namespace AIBridge.Editor
                     continue;
                 }
 
-                var url = GetString(item, "url");
+                var url = GetString(item, "reachableUrl") ?? GetString(item, "url");
                 if (string.IsNullOrWhiteSpace(url))
                 {
                     continue;
@@ -224,13 +232,21 @@ namespace AIBridge.Editor
                 {
                     TargetId = GetString(item, "targetId") ?? "http",
                     Url = url.TrimEnd('/'),
+                    ReachableUrl = (GetString(item, "reachableUrl") ?? url).TrimEnd('/'),
+                    BindUrl = GetString(item, "bindUrl"),
                     Platform = GetString(item, "platform"),
                     ProjectName = GetString(item, "projectName"),
                     ApplicationVersion = GetString(item, "applicationVersion"),
                     DeviceName = GetString(item, "deviceName"),
                     LastSeenUtc = lastSeen.HasValue ? lastSeen.Value.ToString("o") : null,
+                    LastHealthCheckUtc = GetString(item, "lastHealthCheckUtc"),
                     RemoteEndPoint = GetString(item, "remoteEndPoint"),
+                    SourceInterface = GetString(item, "sourceInterface"),
+                    SourceInterfaceAddress = GetString(item, "sourceInterfaceAddress"),
+                    SourceInterfaceDescription = GetString(item, "sourceInterfaceDescription"),
+                    TargetKind = GetString(item, "targetKind"),
                     RequiresToken = GetBool(item, "requiresToken"),
+                    Reachable = !item.ContainsKey("reachable") || GetBool(item, "reachable"),
                     Stale = !lastSeen.HasValue || DateTime.UtcNow - lastSeen.Value > DiscoveryCacheStaleTimeout,
                     AgeSeconds = ageSeconds
                 });

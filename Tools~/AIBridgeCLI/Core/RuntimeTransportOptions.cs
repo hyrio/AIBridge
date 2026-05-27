@@ -24,6 +24,8 @@ namespace AIBridgeCLI.Core
         public string HttpUrl { get; private set; }
         public string Token { get; private set; }
         public bool HttpUrlExplicit { get; private set; }
+        public string PreferredPlatform { get; private set; }
+        public string PreferredProjectHint { get; private set; }
 
         private RuntimeTransportOptions()
         {
@@ -41,8 +43,10 @@ namespace AIBridgeCLI.Core
             var resolvedTransport = ResolveTransportName(transport, config);
             var resolvedTarget = string.IsNullOrWhiteSpace(target) ? (string.IsNullOrWhiteSpace(config.target) ? DefaultTarget : config.target) : target;
             var runtimeDirectory = RuntimePathHelper.ResolveRuntimeDirectory(runtimeDirectoryOverride);
+            var preferredPlatform = ResolveOption(commandLineOptions, "platform");
+            var preferredProjectHint = ResolveOption(commandLineOptions, "projectHint");
             var httpUrlExplicit = HasExplicitHttpUrl(commandLineOptions);
-            var httpUrl = ResolveHttpUrl(commandLineOptions, config, resolvedTarget, runtimeDirectory);
+            var httpUrl = ResolveHttpUrl(commandLineOptions, config, resolvedTarget, runtimeDirectory, preferredPlatform, preferredProjectHint);
             return new RuntimeTransportOptions
             {
                 Kind = ParseTransportKind(resolvedTransport),
@@ -52,7 +56,9 @@ namespace AIBridgeCLI.Core
                 PollIntervalMs = pollIntervalMs,
                 HttpUrl = NormalizeHttpUrl(httpUrl),
                 HttpUrlExplicit = httpUrlExplicit,
-                Token = ResolveOption(commandLineOptions, "token", TokenEnvironment, config.token)
+                Token = ResolveOption(commandLineOptions, "token", TokenEnvironment, config.token),
+                PreferredPlatform = preferredPlatform,
+                PreferredProjectHint = preferredProjectHint
             };
         }
 
@@ -102,7 +108,13 @@ namespace AIBridgeCLI.Core
             throw new ArgumentException($"Unsupported runtime transport: {transport}. Supported transports: file, http.");
         }
 
-        private static string ResolveHttpUrl(System.Collections.Generic.Dictionary<string, string> options, RuntimeConfig config, string target, string runtimeDirectory)
+        private static string ResolveHttpUrl(
+            System.Collections.Generic.Dictionary<string, string> options,
+            RuntimeConfig config,
+            string target,
+            string runtimeDirectory,
+            string preferredPlatform,
+            string preferredProjectHint)
         {
             var explicitUrl = ResolveOption(options, "url", HttpUrlEnvironment, null);
             if (!string.IsNullOrWhiteSpace(explicitUrl))
@@ -110,10 +122,35 @@ namespace AIBridgeCLI.Core
                 return explicitUrl;
             }
 
+            var discoveryEnabled = config?.discovery == null || config.discovery.enabled;
+            var cacheSeconds = config?.discovery == null ? RuntimeDiscoveryClient.DefaultCacheSeconds : config.discovery.cacheSeconds;
+            var cachedTargets = discoveryEnabled
+                ? RuntimeDiscoveryClient.ReadFreshCache(cacheSeconds)
+                : null;
+
+            // latest 默认走 discovery cache 的 Android/远端优先排序，避免本机 Player heartbeat 抢占局域网目标。
+            if (string.Equals(target, DefaultTarget, StringComparison.OrdinalIgnoreCase))
+            {
+                var latestCachedTarget = RuntimeDiscoveryClient.SelectCachedTarget(cachedTargets, target, preferredPlatform, preferredProjectHint);
+                if (latestCachedTarget != null && !string.IsNullOrWhiteSpace(latestCachedTarget.url))
+                {
+                    return latestCachedTarget.reachableUrl ?? latestCachedTarget.url;
+                }
+            }
+
             // 当前工程 fresh heartbeat 是 Runtime 实际端口的权威来源，优先于可能过期的配置文件。
-            if (RuntimePathHelper.TryResolveFreshHttpUrl(runtimeDirectory, target, out var heartbeatUrl))
+            if (RuntimePathHelper.TryResolveFreshHttpUrl(runtimeDirectory, target, preferredPlatform, preferredProjectHint, out var heartbeatUrl))
             {
                 return heartbeatUrl;
+            }
+
+            if (cachedTargets != null)
+            {
+                var cachedTarget = RuntimeDiscoveryClient.SelectCachedTarget(cachedTargets, target, preferredPlatform, preferredProjectHint);
+                if (cachedTarget != null && !string.IsNullOrWhiteSpace(cachedTarget.url))
+                {
+                    return cachedTarget.reachableUrl ?? cachedTarget.url;
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(config?.url))
@@ -121,42 +158,7 @@ namespace AIBridgeCLI.Core
                 return config.url;
             }
 
-            var discoveryEnabled = config?.discovery == null || config.discovery.enabled;
-            if (discoveryEnabled)
-            {
-                var cacheSeconds = config?.discovery == null ? RuntimeDiscoveryClient.DefaultCacheSeconds : config.discovery.cacheSeconds;
-                var cachedTargets = RuntimeDiscoveryClient.ReadFreshCache(cacheSeconds);
-                var cachedTarget = ResolveCachedTarget(cachedTargets, target);
-                if (cachedTarget != null && !string.IsNullOrWhiteSpace(cachedTarget.url))
-                {
-                    return cachedTarget.url;
-                }
-            }
-
             return DefaultHttpUrl;
-        }
-
-        private static RuntimeDiscoveryTarget ResolveCachedTarget(System.Collections.Generic.List<RuntimeDiscoveryTarget> targets, string target)
-        {
-            if (targets == null || targets.Count == 0)
-            {
-                return null;
-            }
-
-            if (!string.IsNullOrWhiteSpace(target) && !string.Equals(target, DefaultTarget, StringComparison.OrdinalIgnoreCase))
-            {
-                for (var i = 0; i < targets.Count; i++)
-                {
-                    if (string.Equals(targets[i].targetId, target, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return targets[i];
-                    }
-                }
-
-                return null;
-            }
-
-            return targets[0];
         }
 
         private static string ResolveOption(System.Collections.Generic.Dictionary<string, string> options, string key, string environmentName, string configValue)
@@ -173,6 +175,16 @@ namespace AIBridgeCLI.Core
             }
 
             return string.IsNullOrWhiteSpace(configValue) ? null : configValue;
+        }
+
+        private static string ResolveOption(System.Collections.Generic.Dictionary<string, string> options, string key)
+        {
+            if (options.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+
+            return null;
         }
 
         private static System.Collections.Generic.Dictionary<string, string> ReadCommandLineOptions()

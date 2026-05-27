@@ -31,7 +31,12 @@ namespace AIBridgeCLI.Commands
             {
                 new ParameterInfo("timeout", "LAN discovery timeout in milliseconds", false, "1500"),
                 new ParameterInfo("udpPort", "First UDP discovery port to scan", false, "27183"),
-                new ParameterInfo("projectHint", "Optional project name hint", false)
+                new ParameterInfo("projectHint", "Optional project name hint", false),
+                new ParameterInfo("localIp", "Scan only this local IPv4 address", false),
+                new ParameterInfo("interface", "Scan only matching network interface name/description", false),
+                new ParameterInfo("includeVirtual", "Include virtual/tunnel/reserved interfaces", false, "false"),
+                new ParameterInfo("scanAllInterfaces", "Scan every valid IPv4 interface", false, "true"),
+                new ParameterInfo("token", "Optional runtime auth token for health checks", false)
             },
             ["ping"] = CommonTargetParameters(),
             ["status"] = CommonTargetParameters(),
@@ -223,7 +228,9 @@ namespace AIBridgeCLI.Commands
                 || string.Equals(key, "runtime-dir", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(key, "transport", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(key, "url", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(key, "token", StringComparison.OrdinalIgnoreCase);
+                || string.Equals(key, "token", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "platform", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "projectHint", StringComparison.OrdinalIgnoreCase);
         }
 
         private static object ParseStaticValue(string value)
@@ -264,7 +271,9 @@ namespace AIBridgeCLI.Commands
                 new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
                 new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
                 new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
-                new ParameterInfo("token", "Optional runtime auth token", false)
+                new ParameterInfo("token", "Optional runtime auth token", false),
+                new ParameterInfo("platform", "Prefer cached HTTP target by platform, e.g. Android", false),
+                new ParameterInfo("projectHint", "Prefer cached HTTP target by project name", false)
             };
         }
     }

@@ -216,6 +216,7 @@ namespace AIBridge.Runtime.Transports
                 httpPort = _settings == null || _settings.httpPort <= 0 ? 27182 : _settings.httpPort;
             }
 
+            var reachableUrl = "http://" + localAddress + ":" + httpPort.ToString(CultureInfo.InvariantCulture);
             return new Dictionary<string, object>
             {
                 ["protocol"] = DiscoveryProtocol,
@@ -227,11 +228,24 @@ namespace AIBridge.Runtime.Transports
                 ["platform"] = _platform,
                 ["deviceName"] = _deviceName,
                 ["transport"] = "http",
-                ["url"] = "http://" + localAddress + ":" + httpPort.ToString(CultureInfo.InvariantCulture),
+                ["url"] = reachableUrl,
+                ["reachableUrl"] = reachableUrl,
+                ["bindUrl"] = BuildBindUrl(httpPort),
                 ["requiresToken"] = _settings != null && !string.IsNullOrEmpty(_settings.authToken),
                 ["capabilities"] = _runtime.BuildCapabilitiesData(),
                 ["lastSeenUtc"] = DateTime.UtcNow.ToString("o")
             };
+        }
+
+        private string BuildBindUrl(int httpPort)
+        {
+            var host = _settings == null ? null : _settings.httpBindAddress;
+            if (string.IsNullOrWhiteSpace(host) || host == "*" || host == "+" || host == "0.0.0.0")
+            {
+                host = "127.0.0.1";
+            }
+
+            return "http://" + host.Trim() + ":" + httpPort.ToString(CultureInfo.InvariantCulture);
         }
 
         private static string ResolveReachableAddress(IPEndPoint remote)

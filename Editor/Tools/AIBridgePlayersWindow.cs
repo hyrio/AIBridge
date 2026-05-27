@@ -206,9 +206,11 @@ namespace AIBridge.Editor
             GUILayout.FlexibleSpace();
             var statusText = target.Stale
                 ? AIBridgeEditorText.T("CACHE", "缓存")
-                : AIBridgeEditorText.T("DISCOVERED", "已发现");
+                : target.Reachable
+                    ? AIBridgeEditorText.T("REACHABLE", "可达")
+                    : AIBridgeEditorText.T("DISCOVERED", "已发现");
             var previousColor = GUI.color;
-            GUI.color = target.Stale ? new Color(1f, 0.72f, 0.25f) : new Color(0.55f, 1f, 0.55f);
+            GUI.color = target.Stale ? new Color(1f, 0.72f, 0.25f) : target.Reachable ? new Color(0.55f, 1f, 0.55f) : new Color(0.65f, 0.8f, 1f);
             GUILayout.Label(statusText, EditorStyles.boldLabel, GUILayout.Width(96));
             GUI.color = previousColor;
             if (target.Stale
@@ -219,12 +221,16 @@ namespace AIBridge.Editor
             EditorGUILayout.EndHorizontal();
 
             DrawInfoLine(AIBridgeEditorText.T("URL", "URL"), target.Url);
+            DrawInfoLine(AIBridgeEditorText.T("Bind URL", "监听 URL"), target.BindUrl);
             DrawInfoLine(AIBridgeEditorText.T("Project", "项目"), JoinNonEmpty(target.ProjectName, target.ApplicationVersion));
             DrawInfoLine(AIBridgeEditorText.T("Device", "设备"), target.DeviceName);
             DrawInfoLine(AIBridgeEditorText.T("Platform", "平台"), target.Platform);
+            DrawInfoLine(AIBridgeEditorText.T("Kind", "类型"), target.TargetKind);
             DrawInfoLine(AIBridgeEditorText.T("Auth", "鉴权"), target.RequiresToken ? AIBridgeEditorText.T("Token required", "需要 Token") : AIBridgeEditorText.T("No token", "无 Token"));
             DrawInfoLine(AIBridgeEditorText.T("Last Seen", "最后发现"), FormatDiscoveryAge(target));
+            DrawInfoLine(AIBridgeEditorText.T("Health", "Health"), target.Reachable ? target.LastHealthCheckUtc : AIBridgeEditorText.T("unreachable", "不可达"));
             DrawInfoLine(AIBridgeEditorText.T("Remote", "远端"), target.RemoteEndPoint);
+            DrawInfoLine(AIBridgeEditorText.T("Source NIC", "来源网卡"), JoinNonEmpty(target.SourceInterface, target.SourceInterfaceAddress));
 
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(AIBridgeEditorText.T("Copy Status CLI", "复制状态命令")))

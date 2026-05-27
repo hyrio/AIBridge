@@ -60,12 +60,28 @@ namespace AIBridgeCLI
                 : config.discovery.udpPort;
             var udpPort = parsed.GetInt("udpPort", defaultUdpPort);
             parsed.Options.TryGetValue("projectHint", out var projectHint);
+            parsed.Options.TryGetValue("localIp", out var localIp);
+            parsed.Options.TryGetValue("interface", out var interfaceName);
+            parsed.Options.TryGetValue("token", out var token);
+            var includeVirtual = parsed.GetBool("includeVirtual");
+            var scanAllInterfaces = !parsed.Options.ContainsKey("scanAllInterfaces")
+                || parsed.GetBool("scanAllInterfaces");
 
             CommandResult result;
             try
             {
                 var discovery = new RuntimeDiscoveryClient();
-                var discoveryResult = discovery.Discover(timeoutMs, udpPort, projectHint);
+                var discoveryResult = discovery.Discover(new RuntimeDiscoveryOptions
+                {
+                    timeoutMs = timeoutMs,
+                    udpPort = udpPort,
+                    projectHint = projectHint,
+                    localIp = localIp,
+                    interfaceName = interfaceName,
+                    includeVirtual = includeVirtual,
+                    scanAllInterfaces = scanAllInterfaces,
+                    token = token
+                });
                 result = new CommandResult
                 {
                     success = true,
@@ -81,7 +97,11 @@ namespace AIBridgeCLI
                     data = new
                     {
                         udpPort = udpPort,
-                        timeoutMs = timeoutMs
+                        timeoutMs = timeoutMs,
+                        localIp = localIp,
+                        @interface = interfaceName,
+                        includeVirtual = includeVirtual,
+                        scanAllInterfaces = scanAllInterfaces
                     }
                 };
             }
