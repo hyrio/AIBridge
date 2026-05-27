@@ -241,13 +241,14 @@ Game view screenshots, GIF capture, and `input` commands require Play Mode. Scen
 
 ### Built Player Runtime Bridge
 
-The `runtime` command connects to `AIBridgeRuntime` inside a Player or Play Mode scene. The default target directory is `.aibridge/runtime/targets/`; built Players can pass `--aibridge-runtime-dir <path>` and `--aibridge-target-id <id>` at launch.
+The `runtime` command connects to `AIBridgeRuntime` inside a Player or Play Mode scene. HTTP transport is the default Runtime control plane at `http://127.0.0.1:27182`; file transport remains available for Editor/local compatibility. Built Players can still pass `--aibridge-runtime-dir <path>` and `--aibridge-target-id <id>` when using file transport.
 
-Use `AIBridge/Settings > Runtime` to configure default enablement, Editor Play Mode auto injection, Development Build auto injection, Release Build allowance, background running, runtime directory, TargetId, auth token, allowed actions, and log buffer size. Use `AIBridge/Players` to inspect heartbeat-discovered Players, status, scene, platform, and common CLI commands. Editor Play Mode auto injection is enabled by default, so entering Play Mode creates a temporary hidden `AIBridgeRuntime` when the scene does not already contain one. `Keep Running In Background` is enabled by default for Editor Play Mode and Development Builds so heartbeat and runtime commands keep working after focus loss.
+Use `AIBridge/Settings > Runtime` to configure default enablement, HTTP bind/port, LAN discovery, Editor Play Mode auto injection, Development Build auto injection, Release Build allowance, background running, TargetId, auth token, allowed actions, and log buffer size. The settings tab can write `.aibridge/runtime-config.json` so CLI commands can use project defaults. Use `AIBridge/Players` to inspect file heartbeat targets, local HTTP entry, LAN discovery cache, status, scene, platform, and common CLI commands. Editor Play Mode auto injection is enabled by default, so entering Play Mode creates a temporary hidden `AIBridgeRuntime` when the scene does not already contain one. `Keep Running In Background` is enabled by default for Editor Play Mode and Development Builds so heartbeat and runtime commands keep working after focus loss.
 
 ```bash
 $CLI runtime list_targets
 $CLI runtime status --target latest
+$CLI runtime discover
 $CLI runtime diagnose --target latest
 $CLI runtime logs --target latest --logType Error --count 100
 $CLI runtime perf --target latest --duration 5s --interval 100ms
@@ -256,9 +257,9 @@ $CLI runtime handlers --target latest
 $CLI runtime call --target latest --action qa.open_panel --json "{\"panel\":\"Inventory\"}"
 ```
 
-For remote phones, prefer HTTP transport. For Android USB debugging, run `adb reverse tcp:27182 tcp:27182`, then connect with `--transport http --url http://127.0.0.1:27182`; `adb` is not a standalone Runtime transport.
+For remote phones, use LAN discovery first: `$CLI runtime discover`, then target the discovered id or URL. For Android USB debugging, run `adb reverse tcp:27182 tcp:27182`, then connect with `--transport http --url http://127.0.0.1:27182`; `adb` is not a standalone Runtime transport.
 
-Runtime Bridge v1 only provides status, logs, screenshots, and explicitly registered handler calls. It does not include in-game LLMs, arbitrary C# execution, or unallowlisted reflection calls. Release Builds are off by default and should only enable this bridge after the project accepts the security boundary.
+Runtime Bridge only provides status, logs, screenshots, and explicitly registered handler calls. It does not include in-game LLMs, arbitrary C# execution, or unallowlisted reflection calls. Release Builds are off by default and should only enable this bridge after the project accepts the security boundary.
 
 ### Roslyn Temporary C# Execution
 

@@ -35,21 +35,24 @@ namespace AIBridgeCLI.Core
             int timeoutMs,
             int pollIntervalMs)
         {
-            var resolvedTransport = ResolveTransportName(transport);
             var commandLineOptions = ReadCommandLineOptions();
+            var config = RuntimeConfig.Load();
+            var resolvedTransport = ResolveTransportName(transport, config);
+            var resolvedTarget = string.IsNullOrWhiteSpace(target) ? (string.IsNullOrWhiteSpace(config.target) ? DefaultTarget : config.target) : target;
+            var httpUrl = ResolveHttpUrl(commandLineOptions, config, resolvedTarget);
             return new RuntimeTransportOptions
             {
                 Kind = ParseTransportKind(resolvedTransport),
                 RuntimeDirectory = RuntimePathHelper.ResolveRuntimeDirectory(runtimeDirectoryOverride),
-                Target = string.IsNullOrWhiteSpace(target) ? DefaultTarget : target,
+                Target = resolvedTarget,
                 TimeoutMs = timeoutMs,
                 PollIntervalMs = pollIntervalMs,
-                HttpUrl = NormalizeHttpUrl(ResolveOption(commandLineOptions, "url", HttpUrlEnvironment)),
-                Token = ResolveOption(commandLineOptions, "token", TokenEnvironment)
+                HttpUrl = NormalizeHttpUrl(httpUrl),
+                Token = ResolveOption(commandLineOptions, "token", TokenEnvironment, config.token)
             };
         }
 
-        private static string ResolveTransportName(string transport)
+        private static string ResolveTransportName(string transport, RuntimeConfig config)
         {
             if (!string.IsNullOrWhiteSpace(transport))
             {
@@ -57,7 +60,12 @@ namespace AIBridgeCLI.Core
             }
 
             var envTransport = Environment.GetEnvironmentVariable(TransportEnvironment);
-            return string.IsNullOrWhiteSpace(envTransport) ? "file" : envTransport;
+            if (!string.IsNullOrWhiteSpace(envTransport))
+            {
+                return envTransport;
+            }
+
+            return string.IsNullOrWhiteSpace(config?.transport) ? "http" : config.transport;
         }
 
         private static RuntimeTransportKind ParseTransportKind(string transport)
@@ -80,7 +88,58 @@ namespace AIBridgeCLI.Core
             throw new ArgumentException($"Unsupported runtime transport: {transport}. Supported transports: file, http.");
         }
 
-        private static string ResolveOption(System.Collections.Generic.Dictionary<string, string> options, string key, string environmentName)
+        private static string ResolveHttpUrl(System.Collections.Generic.Dictionary<string, string> options, RuntimeConfig config, string target)
+        {
+            var explicitUrl = ResolveOption(options, "url", HttpUrlEnvironment, null);
+            if (!string.IsNullOrWhiteSpace(explicitUrl))
+            {
+                return explicitUrl;
+            }
+
+            if (!string.IsNullOrWhiteSpace(config?.url))
+            {
+                return config.url;
+            }
+
+            var discoveryEnabled = config?.discovery == null || config.discovery.enabled;
+            if (discoveryEnabled)
+            {
+                var cacheSeconds = config?.discovery == null ? RuntimeDiscoveryClient.DefaultCacheSeconds : config.discovery.cacheSeconds;
+                var cachedTargets = RuntimeDiscoveryClient.ReadFreshCache(cacheSeconds);
+                var cachedTarget = ResolveCachedTarget(cachedTargets, target);
+                if (cachedTarget != null && !string.IsNullOrWhiteSpace(cachedTarget.url))
+                {
+                    return cachedTarget.url;
+                }
+            }
+
+            return DefaultHttpUrl;
+        }
+
+        private static RuntimeDiscoveryTarget ResolveCachedTarget(System.Collections.Generic.List<RuntimeDiscoveryTarget> targets, string target)
+        {
+            if (targets == null || targets.Count == 0)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(target) && !string.Equals(target, DefaultTarget, StringComparison.OrdinalIgnoreCase))
+            {
+                for (var i = 0; i < targets.Count; i++)
+                {
+                    if (string.Equals(targets[i].targetId, target, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return targets[i];
+                    }
+                }
+
+                return null;
+            }
+
+            return targets[0];
+        }
+
+        private static string ResolveOption(System.Collections.Generic.Dictionary<string, string> options, string key, string environmentName, string configValue)
         {
             if (options.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
             {
@@ -88,7 +147,12 @@ namespace AIBridgeCLI.Core
             }
 
             var envValue = Environment.GetEnvironmentVariable(environmentName);
-            return string.IsNullOrWhiteSpace(envValue) ? null : envValue;
+            if (!string.IsNullOrWhiteSpace(envValue))
+            {
+                return envValue;
+            }
+
+            return string.IsNullOrWhiteSpace(configValue) ? null : configValue;
         }
 
         private static System.Collections.Generic.Dictionary<string, string> ReadCommandLineOptions()

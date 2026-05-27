@@ -12,6 +12,12 @@ namespace AIBridgeCLI
 
         static int HandleRuntimeCommand(ParsedArgs parsed, CommandRequest request, int timeout, bool noWait, OutputMode outputMode)
         {
+            var runtimeAction = RuntimePathHelper.GetRuntimeAction(request);
+            if (string.Equals(runtimeAction, "runtime.discover", StringComparison.OrdinalIgnoreCase))
+            {
+                return HandleRuntimeDiscover(parsed, outputMode);
+            }
+
             parsed.Options.TryGetValue("runtime-dir", out var runtimeDirectory);
             parsed.Options.TryGetValue("target", out var target);
             parsed.Options.TryGetValue("transport", out var transport);
@@ -41,6 +47,45 @@ namespace AIBridgeCLI
             }
 
             result = sender.SendCommand(request);
+            OutputFormatter.PrintResult(result, outputMode, includeIdInRaw: false);
+            return result.success ? 0 : 1;
+        }
+
+        private static int HandleRuntimeDiscover(ParsedArgs parsed, OutputMode outputMode)
+        {
+            var config = RuntimeConfig.Load();
+            var timeoutMs = parsed.GetInt("timeout", RuntimeDiscoveryClient.DefaultDiscoveryTimeoutMs);
+            var defaultUdpPort = config.discovery == null || config.discovery.udpPort <= 0
+                ? RuntimeDiscoveryClient.DefaultDiscoveryPort
+                : config.discovery.udpPort;
+            var udpPort = parsed.GetInt("udpPort", defaultUdpPort);
+            parsed.Options.TryGetValue("projectHint", out var projectHint);
+
+            CommandResult result;
+            try
+            {
+                var discovery = new RuntimeDiscoveryClient();
+                var discoveryResult = discovery.Discover(timeoutMs, udpPort, projectHint);
+                result = new CommandResult
+                {
+                    success = true,
+                    data = discoveryResult
+                };
+            }
+            catch (Exception ex)
+            {
+                result = new CommandResult
+                {
+                    success = false,
+                    error = "Runtime LAN discovery failed: " + ex.Message,
+                    data = new
+                    {
+                        udpPort = udpPort,
+                        timeoutMs = timeoutMs
+                    }
+                };
+            }
+
             OutputFormatter.PrintResult(result, outputMode, includeIdInRaw: false);
             return result.success ? 0 : 1;
         }

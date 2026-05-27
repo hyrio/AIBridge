@@ -13,6 +13,7 @@ namespace AIBridgeCLI.Commands
         public override string[] Actions => new[]
         {
             "list_targets",
+            "discover",
             "ping",
             "status",
             "logs",
@@ -26,13 +27,19 @@ namespace AIBridgeCLI.Commands
         protected override Dictionary<string, List<ParameterInfo>> ActionParameters => new Dictionary<string, List<ParameterInfo>>
         {
             ["list_targets"] = CommonTargetParameters(),
+            ["discover"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("timeout", "LAN discovery timeout in milliseconds", false, "1500"),
+                new ParameterInfo("udpPort", "UDP discovery port", false, "27183"),
+                new ParameterInfo("projectHint", "Optional project name hint", false)
+            },
             ["ping"] = CommonTargetParameters(),
             ["status"] = CommonTargetParameters(),
             ["logs"] = new List<ParameterInfo>
             {
                 new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
                 new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
-                new ParameterInfo("transport", "Runtime transport: file, http", false, "file"),
+                new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
                 new ParameterInfo("count", "Maximum number of log entries", false, "50"),
                 new ParameterInfo("tail", "Alias for count", false),
                 new ParameterInfo("logType", "Filter by type: all, Log, Warning, Error, Exception, Assert", false, "all"),
@@ -48,7 +55,7 @@ namespace AIBridgeCLI.Commands
             {
                 new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
                 new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
-                new ParameterInfo("transport", "Runtime transport: file, http", false, "file"),
+                new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
                 new ParameterInfo("duration", "Sampling duration, e.g. 5s or 5000ms", false, "5s"),
                 new ParameterInfo("interval", "Sampling interval, e.g. 100ms", false, "100ms"),
                 new ParameterInfo("hitchThresholdMs", "Frame time threshold counted as a hitch", false, "50"),
@@ -59,7 +66,7 @@ namespace AIBridgeCLI.Commands
             {
                 new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
                 new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
-                new ParameterInfo("transport", "Runtime transport: file, http", false, "file"),
+                new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
                 new ParameterInfo("output", "Optional PC output path for the screenshot", false),
                 new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
                 new ParameterInfo("token", "Optional runtime auth token", false)
@@ -71,7 +78,7 @@ namespace AIBridgeCLI.Commands
                 new ParameterInfo("action", "Registered runtime business action", true),
                 new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
                 new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
-                new ParameterInfo("transport", "Runtime transport: file, http", false, "file"),
+                new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
                 new ParameterInfo("json", "JSON parameters passed to the runtime handler", false),
                 new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
                 new ParameterInfo("token", "Optional runtime auth token", false)
@@ -97,6 +104,10 @@ namespace AIBridgeCLI.Commands
             {
                 case "list_targets":
                     request.@params["action"] = "runtime.list_targets";
+                    return request;
+                case "discover":
+                    request.@params["action"] = "runtime.discover";
+                    CopyOptions(request, options, includeJson: false, excludeActionOption: false);
                     return request;
                 case "ping":
                     request.@params["action"] = "runtime.ping";
@@ -251,7 +262,7 @@ namespace AIBridgeCLI.Commands
             {
                 new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
                 new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
-                new ParameterInfo("transport", "Runtime transport: file, http", false, "file"),
+                new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
                 new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
                 new ParameterInfo("token", "Optional runtime auth token", false)
             };

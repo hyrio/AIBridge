@@ -15,9 +15,11 @@ namespace AIBridge.Runtime
         public int logBufferSize = 500;
         public int maxResultBytes = 1048576;
         public bool keepRunningInBackground = true;
-        public bool enableHttpTransport = false;
-        public string httpBindAddress = "127.0.0.1";
+        public bool enableHttpTransport = true;
+        public string httpBindAddress = "0.0.0.0";
         public int httpPort = 27182;
+        public bool enableLanDiscovery = true;
+        public int discoveryUdpPort = 27183;
 
         public bool IsActionExplicitlyAllowed(string action)
         {

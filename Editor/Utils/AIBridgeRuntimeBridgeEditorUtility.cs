@@ -12,6 +12,7 @@ namespace AIBridge.Editor
     internal sealed class AIBridgeRuntimePlayerInfo
     {
         public string TargetId;
+        public string Transport;
         public string ProductName;
         public string ApplicationVersion;
         public string RuntimeVersion;
@@ -20,8 +21,26 @@ namespace AIBridge.Editor
         public string TargetPath;
         public string CommandsPath;
         public string ResultsPath;
+        public string HttpUrl;
         public string LastHeartbeatUtc;
         public int ProcessId;
+        public int HttpPort;
+        public int LanDiscoveryUdpPort;
+        public bool Stale;
+        public double? AgeSeconds;
+    }
+
+    internal sealed class AIBridgeRuntimeDiscoveredTargetInfo
+    {
+        public string TargetId;
+        public string Url;
+        public string Platform;
+        public string ProjectName;
+        public string ApplicationVersion;
+        public string DeviceName;
+        public string LastSeenUtc;
+        public string RemoteEndPoint;
+        public bool RequiresToken;
         public bool Stale;
         public double? AgeSeconds;
     }
@@ -33,7 +52,11 @@ namespace AIBridge.Editor
         public const string HeartbeatFileName = "heartbeat.json";
         public const string CommandsDirectoryName = "commands";
         public const string ResultsDirectoryName = "results";
+        public const string RuntimeConfigFileName = "runtime-config.json";
+        public const string DiscoveryCacheFileName = "discovery-cache.json";
+        public const int DiscoveryCacheFreshSeconds = 30;
         private static readonly TimeSpan StaleHeartbeatTimeout = TimeSpan.FromSeconds(15);
+        private static readonly TimeSpan DiscoveryCacheStaleTimeout = TimeSpan.FromSeconds(DiscoveryCacheFreshSeconds);
 
         public static string GetRuntimeDirectory()
         {
@@ -77,6 +100,7 @@ namespace AIBridge.Editor
                 players.Add(new AIBridgeRuntimePlayerInfo
                 {
                     TargetId = targetId,
+                    Transport = "file",
                     ProductName = GetString(heartbeat, "productName"),
                     ApplicationVersion = GetString(heartbeat, "applicationVersion"),
                     RuntimeVersion = GetString(heartbeat, "runtimeVersion"),
@@ -85,8 +109,11 @@ namespace AIBridge.Editor
                     TargetPath = targetPath,
                     CommandsPath = GetString(heartbeat, "commandsPath") ?? Path.Combine(targetPath, CommandsDirectoryName),
                     ResultsPath = GetString(heartbeat, "resultsPath") ?? Path.Combine(targetPath, ResultsDirectoryName),
+                    HttpUrl = GetString(heartbeat, "httpUrl"),
                     LastHeartbeatUtc = lastHeartbeat.HasValue ? lastHeartbeat.Value.ToString("o") : null,
                     ProcessId = GetInt(heartbeat, "processId"),
+                    HttpPort = GetInt(heartbeat, "httpPort"),
+                    LanDiscoveryUdpPort = GetInt(heartbeat, "lanDiscoveryUdpPort"),
                     Stale = !lastHeartbeat.HasValue || DateTime.UtcNow - lastHeartbeat.Value > StaleHeartbeatTimeout,
                     AgeSeconds = ageSeconds
                 });
@@ -98,8 +125,119 @@ namespace AIBridge.Editor
 
         public static string BuildCliCommand(string commandBody)
         {
+            return BuildCliCommand(commandBody, includeRuntimeDirectory: true);
+        }
+
+        public static string BuildCliCommand(string commandBody, bool includeRuntimeDirectory)
+        {
+            if (!includeRuntimeDirectory)
+            {
+                return "$CLI " + commandBody;
+            }
+
             var runtimeDirectory = GetRuntimeDirectory();
             return "$CLI " + commandBody + " --runtime-dir " + Quote(runtimeDirectory);
+        }
+
+        public static string BuildLocalHttpUrl()
+        {
+            var settings = AIBridgeProjectSettings.Instance.RuntimeBridge;
+            var port = Math.Max(1, settings.HttpPort);
+            var host = settings.HttpBindAddress;
+            if (string.IsNullOrWhiteSpace(host) || host == "*" || host == "+" || host == "0.0.0.0")
+            {
+                host = "127.0.0.1";
+            }
+
+            return "http://" + host.Trim() + ":" + port;
+        }
+
+        public static string GetRuntimeConfigPath()
+        {
+            return Path.Combine(AIBridge.BridgeDirectory, RuntimeConfigFileName);
+        }
+
+        public static string GetDiscoveryCachePath()
+        {
+            return Path.Combine(AIBridge.BridgeDirectory, RuntimeDirectoryName, DiscoveryCacheFileName);
+        }
+
+        public static string WriteRuntimeConfig()
+        {
+            var settings = AIBridgeProjectSettings.Instance.RuntimeBridge;
+            var target = string.IsNullOrWhiteSpace(settings.TargetId) ? "latest" : settings.TargetId.Trim();
+            var config = new Dictionary<string, object>
+            {
+                ["transport"] = "http",
+                ["url"] = BuildLocalHttpUrl(),
+                ["target"] = target,
+                ["token"] = settings.AuthToken ?? string.Empty,
+                ["discovery"] = new Dictionary<string, object>
+                {
+                    ["enabled"] = settings.EnableLanDiscovery,
+                    ["udpPort"] = Math.Max(1, settings.DiscoveryUdpPort),
+                    ["cacheSeconds"] = DiscoveryCacheFreshSeconds
+                }
+            };
+
+            var path = GetRuntimeConfigPath();
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            File.WriteAllText(path, AIBridgeJson.Serialize(config, pretty: true));
+            return path;
+        }
+
+        public static List<AIBridgeRuntimeDiscoveredTargetInfo> ListDiscoveredTargets()
+        {
+            var targets = new List<AIBridgeRuntimeDiscoveredTargetInfo>();
+            var cache = ReadDiscoveryCache();
+            var rawTargets = GetList(cache, "targets");
+            if (rawTargets == null)
+            {
+                return targets;
+            }
+
+            for (var i = 0; i < rawTargets.Count; i++)
+            {
+                var item = rawTargets[i] as Dictionary<string, object>;
+                if (item == null)
+                {
+                    continue;
+                }
+
+                var url = GetString(item, "url");
+                if (string.IsNullOrWhiteSpace(url))
+                {
+                    continue;
+                }
+
+                var lastSeen = ParseHeartbeatTime(GetString(item, "lastSeenUtc"));
+                var ageSeconds = lastSeen.HasValue
+                    ? (double?)(DateTime.UtcNow - lastSeen.Value).TotalSeconds
+                    : null;
+
+                targets.Add(new AIBridgeRuntimeDiscoveredTargetInfo
+                {
+                    TargetId = GetString(item, "targetId") ?? "http",
+                    Url = url.TrimEnd('/'),
+                    Platform = GetString(item, "platform"),
+                    ProjectName = GetString(item, "projectName"),
+                    ApplicationVersion = GetString(item, "applicationVersion"),
+                    DeviceName = GetString(item, "deviceName"),
+                    LastSeenUtc = lastSeen.HasValue ? lastSeen.Value.ToString("o") : null,
+                    RemoteEndPoint = GetString(item, "remoteEndPoint"),
+                    RequiresToken = GetBool(item, "requiresToken"),
+                    Stale = !lastSeen.HasValue || DateTime.UtcNow - lastSeen.Value > DiscoveryCacheStaleTimeout,
+                    AgeSeconds = ageSeconds
+                });
+            }
+
+            targets.Sort(CompareDiscoveredTargets);
+            return targets;
         }
 
         public static string Quote(string value)
@@ -162,6 +300,13 @@ namespace AIBridge.Editor
             runtime.runtimeSettings.logBufferSize = Math.Max(1, source.LogBufferSize);
             runtime.runtimeSettings.maxResultBytes = Math.Max(1024, source.MaxResultBytes);
             runtime.runtimeSettings.keepRunningInBackground = source.KeepRunningInBackground;
+            runtime.runtimeSettings.enableHttpTransport = source.EnableHttpTransport;
+            runtime.runtimeSettings.httpBindAddress = string.IsNullOrWhiteSpace(source.HttpBindAddress)
+                ? AIBridgeProjectSettings.DefaultRuntimeBridgeHttpBindAddress
+                : source.HttpBindAddress.Trim();
+            runtime.runtimeSettings.httpPort = Math.Max(1, source.HttpPort);
+            runtime.runtimeSettings.enableLanDiscovery = source.EnableLanDiscovery;
+            runtime.runtimeSettings.discoveryUdpPort = Math.Max(1, source.DiscoveryUdpPort);
         }
 
         private static Dictionary<string, object> ReadHeartbeat(string heartbeatPath)
@@ -174,6 +319,24 @@ namespace AIBridge.Editor
             try
             {
                 return AIBridgeJson.DeserializeObject(File.ReadAllText(heartbeatPath));
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static Dictionary<string, object> ReadDiscoveryCache()
+        {
+            var path = GetDiscoveryCachePath();
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            try
+            {
+                return AIBridgeJson.DeserializeObject(File.ReadAllText(path));
             }
             catch
             {
@@ -226,6 +389,31 @@ namespace AIBridge.Editor
             return int.TryParse(value.ToString(), out var parsed) ? parsed : 0;
         }
 
+        private static bool GetBool(Dictionary<string, object> data, string key)
+        {
+            if (data == null || !data.TryGetValue(key, out var value) || value == null)
+            {
+                return false;
+            }
+
+            if (value is bool boolValue)
+            {
+                return boolValue;
+            }
+
+            return bool.TryParse(value.ToString(), out var parsed) && parsed;
+        }
+
+        private static List<object> GetList(Dictionary<string, object> data, string key)
+        {
+            if (data == null || !data.TryGetValue(key, out var value) || value == null)
+            {
+                return null;
+            }
+
+            return value as List<object>;
+        }
+
         private static string[] ParseAllowedActions(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -242,6 +430,21 @@ namespace AIBridge.Editor
         }
 
         private static int ComparePlayers(AIBridgeRuntimePlayerInfo left, AIBridgeRuntimePlayerInfo right)
+        {
+            if (left.Stale != right.Stale)
+            {
+                return left.Stale ? 1 : -1;
+            }
+
+            var leftAge = left.AgeSeconds ?? double.MaxValue;
+            var rightAge = right.AgeSeconds ?? double.MaxValue;
+            var ageCompare = leftAge.CompareTo(rightAge);
+            return ageCompare != 0
+                ? ageCompare
+                : string.Compare(left.TargetId, right.TargetId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int CompareDiscoveredTargets(AIBridgeRuntimeDiscoveredTargetInfo left, AIBridgeRuntimeDiscoveredTargetInfo right)
         {
             if (left.Stale != right.Stale)
             {

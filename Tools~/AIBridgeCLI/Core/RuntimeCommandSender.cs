@@ -172,7 +172,7 @@ namespace AIBridgeCLI.Core
             {
                 id = requestId,
                 success = false,
-                error = "Runtime target was not found. Start a Player with AIBridgeRuntime or pass --runtime-dir/--target.",
+                error = "Runtime target was not found. Start a Player with AIBridgeRuntime, run runtime discover for LAN targets, or pass --url/--target.",
                 data = new
                 {
                     transport = GetTransportName(),

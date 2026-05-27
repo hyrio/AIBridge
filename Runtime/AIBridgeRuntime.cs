@@ -84,6 +84,7 @@ namespace AIBridge.Runtime
         private readonly Dictionary<string, AIBridgeRuntimeCommandResult> _pendingHttpResults = new Dictionary<string, AIBridgeRuntimeCommandResult>();
         private readonly HashSet<string> _httpCommandIds = new HashSet<string>();
         private HttpRuntimeTransportServer _httpTransportServer;
+        private LanRuntimeDiscoveryServer _lanDiscoveryServer;
 
         private float _lastPollTime;
         private float _lastHeartbeatTime;
@@ -111,6 +112,7 @@ namespace AIBridge.Runtime
         {
             if (Instance == this)
             {
+                StopLanDiscovery();
                 StopHttpTransport();
                 RestoreRunInBackgroundIfNeeded();
                 Instance = null;
@@ -226,6 +228,7 @@ namespace AIBridge.Runtime
                 _initialized = true;
                 ApplyRunInBackgroundIfNeeded();
                 StartHttpTransportIfNeeded();
+                StartLanDiscoveryIfNeeded();
                 WriteHeartbeat();
             }
             catch (Exception e)
@@ -551,8 +554,12 @@ namespace AIBridge.Runtime
             {
                 targetId = _targetId,
                 protocolVersion = 2,
-                transport = "file",
+                transport = _httpTransportServer != null && _httpTransportServer.IsRunning ? "http" : "file",
                 capabilities = BuildCapabilitiesData(),
+                httpUrl = BuildLocalHttpUrl(),
+                httpPort = runtimeSettings == null ? 0 : runtimeSettings.httpPort,
+                httpBindAddress = runtimeSettings == null ? null : runtimeSettings.httpBindAddress,
+                lanDiscoveryUdpPort = runtimeSettings == null ? 0 : runtimeSettings.discoveryUdpPort,
                 runtimeVersion = RuntimeVersion,
                 productName = Application.productName,
                 applicationVersion = Application.version,
@@ -965,6 +972,10 @@ namespace AIBridge.Runtime
                 ["protocolVersion"] = 2,
                 ["transport"] = "file",
                 ["capabilities"] = BuildCapabilitiesData(),
+                ["httpUrl"] = BuildLocalHttpUrl(),
+                ["httpPort"] = runtimeSettings == null ? 0 : runtimeSettings.httpPort,
+                ["httpBindAddress"] = runtimeSettings == null ? null : runtimeSettings.httpBindAddress,
+                ["lanDiscoveryUdpPort"] = runtimeSettings == null ? 0 : runtimeSettings.discoveryUdpPort,
                 ["runtimeVersion"] = RuntimeVersion,
                 ["productName"] = Application.productName,
                 ["applicationVersion"] = Application.version,
@@ -1207,6 +1218,20 @@ namespace AIBridge.Runtime
 #endif
         }
 
+        internal bool IsLanDiscoveryEnabled()
+        {
+            if (runtimeSettings == null || !runtimeSettings.enableLanDiscovery || !IsHttpTransportEnabled())
+            {
+                return false;
+            }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            return true;
+#else
+            return runtimeSettings.allowInReleaseBuild;
+#endif
+        }
+
         internal Dictionary<string, object> BuildHttpHealthData()
         {
             // HTTP 请求在后台线程处理，health 只读取运行时缓存字段，避免跨线程访问 Unity API。
@@ -1292,6 +1317,23 @@ namespace AIBridge.Runtime
             return true;
         }
 
+        private string BuildLocalHttpUrl()
+        {
+            if (_httpTransportServer == null || !_httpTransportServer.IsRunning)
+            {
+                return null;
+            }
+
+            var port = runtimeSettings == null || runtimeSettings.httpPort <= 0 ? 27182 : runtimeSettings.httpPort;
+            var bind = runtimeSettings == null ? null : runtimeSettings.httpBindAddress;
+            if (string.IsNullOrWhiteSpace(bind) || bind == "*" || bind == "+" || bind == "0.0.0.0")
+            {
+                bind = "127.0.0.1";
+            }
+
+            return "http://" + bind.Trim() + ":" + port.ToString(CultureInfo.InvariantCulture);
+        }
+
         private void StartHttpTransportIfNeeded()
         {
             if (!IsHttpTransportEnabled())
@@ -1334,6 +1376,48 @@ namespace AIBridge.Runtime
             _httpTransportServer = null;
         }
 
+        private void StartLanDiscoveryIfNeeded()
+        {
+            if (!IsLanDiscoveryEnabled())
+            {
+                return;
+            }
+
+            if (_lanDiscoveryServer != null)
+            {
+                return;
+            }
+
+            LanRuntimeDiscoveryServer server = null;
+            try
+            {
+                server = new LanRuntimeDiscoveryServer(this, runtimeSettings);
+                server.Start();
+                _lanDiscoveryServer = server;
+            }
+            catch (Exception ex)
+            {
+                if (server != null)
+                {
+                    server.Dispose();
+                }
+
+                Debug.LogError("[AIBridgeRuntime] Failed to start LAN discovery: " + ex.Message);
+                _lanDiscoveryServer = null;
+            }
+        }
+
+        private void StopLanDiscovery()
+        {
+            if (_lanDiscoveryServer == null)
+            {
+                return;
+            }
+
+            _lanDiscoveryServer.Dispose();
+            _lanDiscoveryServer = null;
+        }
+
         private void CacheHttpResult(AIBridgeRuntimeCommandResult result)
         {
             if (result == null || string.IsNullOrEmpty(result.CommandId))
@@ -1353,7 +1437,7 @@ namespace AIBridge.Runtime
             }
         }
 
-        private Dictionary<string, object> BuildCapabilitiesData()
+        internal Dictionary<string, object> BuildCapabilitiesData()
         {
             return new Dictionary<string, object>
             {
@@ -1363,6 +1447,7 @@ namespace AIBridge.Runtime
                 ["logsClear"] = true,
                 ["file"] = true,
                 ["http"] = _httpTransportServer != null && _httpTransportServer.IsRunning,
+                ["lanDiscovery"] = _lanDiscoveryServer != null && _lanDiscoveryServer.IsRunning,
                 ["ws"] = false
             };
         }

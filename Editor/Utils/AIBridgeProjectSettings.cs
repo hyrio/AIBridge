@@ -69,6 +69,11 @@ namespace AIBridge.Editor
             public int LogBufferSize = DefaultRuntimeBridgeLogBufferSize;
             public int MaxResultBytes = DefaultRuntimeBridgeMaxResultBytes;
             public bool KeepRunningInBackground = DefaultRuntimeBridgeKeepRunningInBackground;
+            public bool EnableHttpTransport = DefaultRuntimeBridgeEnableHttpTransport;
+            public string HttpBindAddress = DefaultRuntimeBridgeHttpBindAddress;
+            public int HttpPort = DefaultRuntimeBridgeHttpPort;
+            public bool EnableLanDiscovery = DefaultRuntimeBridgeEnableLanDiscovery;
+            public int DiscoveryUdpPort = DefaultRuntimeBridgeDiscoveryUdpPort;
 
             public bool AllowRuntimeBridgeInReleaseBuild
             {
@@ -77,7 +82,7 @@ namespace AIBridge.Editor
             }
         }
 
-        public const int CurrentDataVersion = 12;
+        public const int CurrentDataVersion = 13;
         public const string DefaultEditorLanguage = "English";
         public const string LegacySharedSkillRootDirectory = ".skills";
         public const string DefaultSkillRootDirectory = "";
@@ -101,6 +106,11 @@ namespace AIBridge.Editor
         public const int DefaultRuntimeBridgeLogBufferSize = 500;
         public const int DefaultRuntimeBridgeMaxResultBytes = 1048576;
         public const bool DefaultRuntimeBridgeKeepRunningInBackground = true;
+        public const bool DefaultRuntimeBridgeEnableHttpTransport = true;
+        public const string DefaultRuntimeBridgeHttpBindAddress = "0.0.0.0";
+        public const int DefaultRuntimeBridgeHttpPort = 27182;
+        public const bool DefaultRuntimeBridgeEnableLanDiscovery = true;
+        public const int DefaultRuntimeBridgeDiscoveryUdpPort = 27183;
         public static readonly string[] SupportedLogRetrievalTypes = { "all", "Log", "Warning", "Error" };
 
         [SerializeField] private int dataVersion = CurrentDataVersion;
@@ -342,6 +352,21 @@ namespace AIBridge.Editor
                 if (runtimeBridge.MaxResultBytes <= 0)
                 {
                     runtimeBridge.MaxResultBytes = DefaultRuntimeBridgeMaxResultBytes;
+                }
+
+                if (string.IsNullOrWhiteSpace(runtimeBridge.HttpBindAddress))
+                {
+                    runtimeBridge.HttpBindAddress = DefaultRuntimeBridgeHttpBindAddress;
+                }
+
+                if (runtimeBridge.HttpPort <= 0)
+                {
+                    runtimeBridge.HttpPort = DefaultRuntimeBridgeHttpPort;
+                }
+
+                if (runtimeBridge.DiscoveryUdpPort <= 0)
+                {
+                    runtimeBridge.DiscoveryUdpPort = DefaultRuntimeBridgeDiscoveryUdpPort;
                 }
 
                 return runtimeBridge;
@@ -590,6 +615,15 @@ namespace AIBridge.Editor
             if (dataVersion < 12)
             {
                 runtimeBridge.AutoInjectRuntimeBridgeInEditorPlayMode = DefaultRuntimeBridgeAutoInjectInEditorPlayMode;
+            }
+
+            if (dataVersion < 13)
+            {
+                runtimeBridge.EnableHttpTransport = DefaultRuntimeBridgeEnableHttpTransport;
+                runtimeBridge.HttpBindAddress = DefaultRuntimeBridgeHttpBindAddress;
+                runtimeBridge.HttpPort = DefaultRuntimeBridgeHttpPort;
+                runtimeBridge.EnableLanDiscovery = DefaultRuntimeBridgeEnableLanDiscovery;
+                runtimeBridge.DiscoveryUdpPort = DefaultRuntimeBridgeDiscoveryUdpPort;
             }
 
             if (dataVersion != CurrentDataVersion)

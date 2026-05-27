@@ -9,7 +9,10 @@ namespace AIBridge.Runtime
     public static class AIBridgeRuntimeBootstrap
     {
         private const string BootstrapObjectName = "AIBridgeRuntime (Bootstrap)";
-        private const string TransportName = "file";
+        private const string TransportName = "http";
+        private const string DefaultHttpBindAddress = "0.0.0.0";
+        private const int DefaultHttpPort = 27182;
+        private const int DefaultDiscoveryUdpPort = 27183;
 
         private static bool _initialized;
         private static bool _releaseBuildAllowed;
@@ -89,9 +92,14 @@ namespace AIBridge.Runtime
 
             runtime.runtimeSettings.enableRuntimeBridge = true;
             runtime.runtimeSettings.allowInReleaseBuild = _releaseBuildAllowed;
+            runtime.runtimeSettings.enableHttpTransport = true;
+            runtime.runtimeSettings.httpBindAddress = DefaultHttpBindAddress;
+            runtime.runtimeSettings.httpPort = DefaultHttpPort;
+            runtime.runtimeSettings.enableLanDiscovery = true;
+            runtime.runtimeSettings.discoveryUdpPort = DefaultDiscoveryUdpPort;
             gameObject.SetActive(true);
 
-            Debug.Log("[AIBridgeRuntimeBootstrap] AIBridgeRuntime created by bootstrap. transport=" + TransportName + ". CLI: AIBridgeCLI runtime status --transport file --target latest / 已通过 bootstrap 创建 AIBridgeRuntime。");
+            Debug.Log("[AIBridgeRuntimeBootstrap] AIBridgeRuntime created by bootstrap. transport=" + TransportName + ". CLI: AIBridgeCLI runtime status --transport http --url http://127.0.0.1:" + DefaultHttpPort + " --target latest; LAN: AIBridgeCLI runtime discover --udpPort " + DefaultDiscoveryUdpPort + " / 已通过 bootstrap 创建 AIBridgeRuntime。");
         }
 
         private static AIBridgeRuntime FindExistingRuntime()

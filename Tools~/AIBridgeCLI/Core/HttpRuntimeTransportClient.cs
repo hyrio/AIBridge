@@ -34,21 +34,17 @@ namespace AIBridgeCLI.Core
 
         public IReadOnlyList<RuntimeTargetInfo> ListTargets()
         {
+            var targets = new List<RuntimeTargetInfo>();
             var health = TryGetHealth();
-            if (health == null)
+            if (health != null)
             {
-                return Array.Empty<RuntimeTargetInfo>();
-            }
+                var targetId = ReadString(health, "targetId");
+                if (string.IsNullOrWhiteSpace(targetId))
+                {
+                    targetId = "http";
+                }
 
-            var targetId = ReadString(health, "targetId");
-            if (string.IsNullOrWhiteSpace(targetId))
-            {
-                targetId = "http";
-            }
-
-            return new[]
-            {
-                new RuntimeTargetInfo
+                targets.Add(new RuntimeTargetInfo
                 {
                     targetId = targetId,
                     path = _options.HttpUrl,
@@ -60,8 +56,36 @@ namespace AIBridgeCLI.Core
                     ageSeconds = 0,
                     lastHeartbeatUtc = ReadString(health, "lastHeartbeatUtc"),
                     heartbeat = health
+                });
+            }
+
+            var cached = RuntimeDiscoveryClient.ReadFreshCache(RuntimeDiscoveryClient.DefaultCacheSeconds);
+            for (var i = 0; i < cached.Count; i++)
+            {
+                var target = cached[i];
+                if (string.IsNullOrWhiteSpace(target.url)
+                    || targets.Exists(existing => string.Equals(existing.targetId, target.targetId, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(existing.path, target.url, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
                 }
-            };
+
+                targets.Add(new RuntimeTargetInfo
+                {
+                    targetId = target.targetId,
+                    path = target.url,
+                    heartbeatPath = target.url.TrimEnd('/') + "/aibridge/health",
+                    commandsPath = target.url.TrimEnd('/') + "/aibridge/commands",
+                    resultsPath = target.url.TrimEnd('/') + "/aibridge/results",
+                    screenshotsPath = target.url,
+                    stale = false,
+                    ageSeconds = 0,
+                    lastHeartbeatUtc = target.lastSeenUtc,
+                    heartbeat = JObject.FromObject(target)
+                });
+            }
+
+            return targets;
         }
 
         public RuntimeTargetInfo ResolveTarget(string target)
@@ -77,6 +101,14 @@ namespace AIBridgeCLI.Core
                 || string.Equals(resolvedTarget, targets[0].targetId, StringComparison.OrdinalIgnoreCase))
             {
                 return targets[0];
+            }
+
+            for (var i = 0; i < targets.Count; i++)
+            {
+                if (string.Equals(resolvedTarget, targets[i].targetId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return targets[i];
+                }
             }
 
             return null;
@@ -95,14 +127,14 @@ namespace AIBridgeCLI.Core
 
             try
             {
-                var url = BuildUrl("/aibridge/commands?timeoutMs=" + _options.TimeoutMs.ToString(CultureInfo.InvariantCulture));
+                var url = BuildUrl(target, "/aibridge/commands?timeoutMs=" + _options.TimeoutMs.ToString(CultureInfo.InvariantCulture));
                 var json = JsonConvert.SerializeObject(request, Formatting.None, new JsonSerializerSettings
                 {
                     NullValueHandling = NullValueHandling.Ignore
                 });
                 var responseJson = SendJson(url, HttpMethod.Post, json, ResolveToken(request));
                 var result = RuntimeResultParser.Parse(request.id, responseJson);
-                TryPrepareScreenshotArtifact(result, request);
+                TryPrepareScreenshotArtifact(result, request, target);
                 lock (_syncResults)
                 {
                     _syncResults[request.id] = result;
@@ -142,7 +174,7 @@ namespace AIBridgeCLI.Core
                     }
                 }
 
-                var result = TryPollResult(commandId);
+                var result = TryPollResult(target, commandId);
                 if (result != null)
                 {
                     return new RuntimeReceiveResult
@@ -241,11 +273,11 @@ namespace AIBridgeCLI.Core
             }
         }
 
-        private CommandResult TryPollResult(string commandId)
+        private CommandResult TryPollResult(RuntimeTargetInfo target, string commandId)
         {
             try
             {
-                var json = SendJson(BuildUrl("/aibridge/results/" + Uri.EscapeDataString(commandId)), HttpMethod.Get, null, _options.Token);
+                var json = SendJson(BuildUrl(target, "/aibridge/results/" + Uri.EscapeDataString(commandId)), HttpMethod.Get, null, _options.Token);
                 return RuntimeResultParser.Parse(commandId, json);
             }
             catch
@@ -303,7 +335,7 @@ namespace AIBridgeCLI.Core
             }
         }
 
-        private void TryPrepareScreenshotArtifact(CommandResult result, CommandRequest request)
+        private void TryPrepareScreenshotArtifact(CommandResult result, CommandRequest request, RuntimeTargetInfo target)
         {
             if (result == null
                 || !result.success
@@ -327,9 +359,9 @@ namespace AIBridgeCLI.Core
 
             try
             {
-                var cachePath = BuildArtifactCachePath(filename);
+                var cachePath = BuildArtifactCachePath(filename, target);
                 Directory.CreateDirectory(Path.GetDirectoryName(cachePath));
-                var bytes = SendBytes(BuildUrl("/aibridge/artifacts/" + Uri.EscapeDataString(filename)), ResolveToken(request));
+                var bytes = SendBytes(BuildUrl(target, "/aibridge/artifacts/" + Uri.EscapeDataString(filename)), ResolveToken(request));
                 File.WriteAllBytes(cachePath, bytes);
                 data["devicePath"] = ReadString(data, "imagePath");
                 data["imagePath"] = cachePath;
@@ -346,10 +378,11 @@ namespace AIBridgeCLI.Core
             }
         }
 
-        private string BuildArtifactCachePath(string filename)
+        private string BuildArtifactCachePath(string filename, RuntimeTargetInfo target)
         {
             var safeName = Path.GetFileName(filename);
-            var cacheRoot = Path.Combine(PathHelper.GetExchangeDirectory(), "runtime-cache", "http", SanitizePathPart(_options.HttpUrl));
+            var baseUrl = target == null || string.IsNullOrWhiteSpace(target.path) ? _options.HttpUrl : target.path;
+            var cacheRoot = Path.Combine(PathHelper.GetExchangeDirectory(), "runtime-cache", "http", SanitizePathPart(baseUrl));
             return Path.Combine(cacheRoot, safeName);
         }
 
@@ -373,12 +406,18 @@ namespace AIBridgeCLI.Core
 
         private string BuildUrl(string path)
         {
+            return BuildUrl(null, path);
+        }
+
+        private string BuildUrl(RuntimeTargetInfo target, string path)
+        {
+            var baseUrl = target == null || string.IsNullOrWhiteSpace(target.path) ? _options.HttpUrl : target.path;
             if (string.IsNullOrEmpty(path))
             {
-                return _options.HttpUrl;
+                return baseUrl;
             }
 
-            return _options.HttpUrl.TrimEnd('/') + "/" + path.TrimStart('/');
+            return baseUrl.TrimEnd('/') + "/" + path.TrimStart('/');
         }
 
         private string ResolveToken(CommandRequest request)

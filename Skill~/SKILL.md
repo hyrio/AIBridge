@@ -100,12 +100,12 @@ $CLI input drag --path "Canvas/Item" --toPath "Canvas/Slot" --frames 12
 
 ### `runtime` - Built Player Runtime Bridge
 
-Requires an `AIBridgeRuntime` component in the running Player or Play Mode scene. Use `--runtime-dir` when the Player was launched with a custom `--aibridge-runtime-dir`.
-Configure defaults in `AIBridge/Settings > Runtime`, and inspect live targets in `AIBridge/Players`.
+Requires an `AIBridgeRuntime` component in the running Player or Play Mode scene. HTTP is the default Runtime transport; file transport remains available for Editor/local compatibility. Configure defaults in `AIBridge/Settings > Runtime`, and inspect live targets plus discovery cache in `AIBridge/Players`.
 
 ```bash
 $CLI runtime list_targets
 $CLI runtime status --target latest
+$CLI runtime discover
 $CLI runtime diagnose --target latest
 $CLI runtime logs --target latest --logType Error --count 100
 $CLI runtime perf --target latest --duration 5s --interval 100ms
@@ -114,7 +114,7 @@ $CLI runtime handlers --target latest
 $CLI runtime call --target latest --action qa.open_panel --json "{\"panel\":\"Inventory\"}"
 ```
 
-For remote phones, prefer HTTP transport. On Android USB, run `adb reverse tcp:27182 tcp:27182` first, then call `--transport http --url http://127.0.0.1:27182`; `adb` is not a runtime transport mode.
+For remote phones, run `$CLI runtime discover` on the LAN first, then target the discovered id or URL. On Android USB, run `adb reverse tcp:27182 tcp:27182` first, then call `--transport http --url http://127.0.0.1:27182`; `adb` is not a runtime transport mode.
 
 ---
 

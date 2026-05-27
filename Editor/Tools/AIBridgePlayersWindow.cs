@@ -9,8 +9,11 @@ namespace AIBridge.Editor
     public sealed class AIBridgePlayersWindow : EditorWindow
     {
         private readonly List<AIBridgeRuntimePlayerInfo> _players = new List<AIBridgeRuntimePlayerInfo>();
+        private readonly List<AIBridgeRuntimeDiscoveredTargetInfo> _discoveredTargets = new List<AIBridgeRuntimeDiscoveredTargetInfo>();
         private Vector2 _scrollPosition;
         private string _runtimeDirectory;
+        private string _localHttpUrl;
+        private string _discoveryCachePath;
         private double _lastRefreshTime;
 
         [MenuItem("AIBridge/Players")]
@@ -18,7 +21,7 @@ namespace AIBridge.Editor
         {
             var window = GetWindow<AIBridgePlayersWindow>();
             window.titleContent = new GUIContent(AIBridgeEditorText.T("AIBridge Players", "AIBridge Players"));
-            window.minSize = new Vector2(560, 360);
+            window.minSize = new Vector2(720, 420);
             window.Show();
         }
 
@@ -36,20 +39,31 @@ namespace AIBridge.Editor
                 AIBridgeEditorText.T("Runtime Directory", "Runtime 目录"),
                 _runtimeDirectory ?? string.Empty,
                 EditorStyles.wordWrappedMiniLabel);
+            EditorGUILayout.LabelField(
+                AIBridgeEditorText.T("HTTP Entry", "HTTP 入口"),
+                _localHttpUrl ?? string.Empty,
+                EditorStyles.wordWrappedMiniLabel);
+            EditorGUILayout.LabelField(
+                AIBridgeEditorText.T("Discovery Cache", "发现缓存"),
+                _discoveryCachePath ?? string.Empty,
+                EditorStyles.wordWrappedMiniLabel);
 
             EditorGUILayout.Space(6);
             _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
+
+            DrawDiscoveredTargets();
 
             if (_players.Count == 0)
             {
                 EditorGUILayout.HelpBox(
                     AIBridgeEditorText.T(
-                        "No Runtime Player targets found. Start Play Mode or a built Player with AIBridgeRuntime enabled.",
-                        "未找到 Runtime Player 目标。请启动挂有 AIBridgeRuntime 的 Play Mode 或已编译 Player。"),
+                        "No file transport Runtime targets found. Start Play Mode or a built Player with AIBridgeRuntime enabled, or run LAN discovery for phone targets.",
+                        "未找到 File transport Runtime 目标。请启动挂有 AIBridgeRuntime 的 Play Mode/Player，或对手机目标执行局域网发现。"),
                     MessageType.Info);
             }
             else
             {
+                EditorGUILayout.LabelField(AIBridgeEditorText.T("File Transport Targets", "File Transport 目标"), EditorStyles.boldLabel);
                 for (var i = 0; i < _players.Count; i++)
                 {
                     DrawPlayer(_players[i]);
@@ -75,12 +89,23 @@ namespace AIBridge.Editor
 
             if (GUILayout.Button(AIBridgeEditorText.T("Copy List CLI", "复制列表命令"), EditorStyles.toolbarButton, GUILayout.Width(110)))
             {
-                CopyCommand("runtime list_targets");
+                CopyFileCommand("runtime list_targets");
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Copy HTTP CLI", "复制 HTTP 命令"), EditorStyles.toolbarButton, GUILayout.Width(112)))
+            {
+                CopyHttpCommand("runtime status --transport http --url " + Quote(_localHttpUrl) + " --target latest");
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Copy Discover CLI", "复制发现命令"), EditorStyles.toolbarButton, GUILayout.Width(128)))
+            {
+                var settings = AIBridgeProjectSettings.Instance.RuntimeBridge;
+                CopyHttpCommand("runtime discover --udpPort " + Math.Max(1, settings.DiscoveryUdpPort));
             }
 
             GUILayout.FlexibleSpace();
             EditorGUILayout.LabelField(
-                AIBridgeEditorText.T($"Targets: {_players.Count}", $"目标数：{_players.Count}"),
+                AIBridgeEditorText.T($"Targets: {_players.Count + _discoveredTargets.Count}", $"目标数：{_players.Count + _discoveredTargets.Count}"),
                 EditorStyles.miniLabel,
                 GUILayout.Width(90));
             EditorGUILayout.LabelField(
@@ -106,6 +131,8 @@ namespace AIBridge.Editor
             EditorGUILayout.EndHorizontal();
 
             DrawInfoLine(AIBridgeEditorText.T("Product", "产品"), JoinNonEmpty(player.ProductName, player.ApplicationVersion));
+            DrawInfoLine(AIBridgeEditorText.T("Transport", "传输"), string.IsNullOrEmpty(player.Transport) ? "file" : player.Transport);
+            DrawInfoLine(AIBridgeEditorText.T("HTTP URL", "HTTP URL"), player.HttpUrl);
             DrawInfoLine(AIBridgeEditorText.T("Scene", "场景"), player.ActiveScene);
             DrawInfoLine(AIBridgeEditorText.T("Platform", "平台"), player.Platform);
             DrawInfoLine(AIBridgeEditorText.T("Runtime", "Runtime"), player.RuntimeVersion);
@@ -114,19 +141,25 @@ namespace AIBridge.Editor
             DrawInfoLine(AIBridgeEditorText.T("Path", "路径"), player.TargetPath);
 
             EditorGUILayout.BeginHorizontal();
+            if (!string.IsNullOrWhiteSpace(player.HttpUrl)
+                && GUILayout.Button(AIBridgeEditorText.T("Copy HTTP Status", "复制 HTTP 状态")))
+            {
+                CopyHttpCommand("runtime status --transport http --url " + Quote(player.HttpUrl) + " --target " + QuoteTarget(player.TargetId));
+            }
+
             if (GUILayout.Button(AIBridgeEditorText.T("Copy Status CLI", "复制状态命令")))
             {
-                CopyCommand("runtime status --target " + QuoteTarget(player.TargetId));
+                CopyFileCommand("runtime status --transport file --target " + QuoteTarget(player.TargetId));
             }
 
             if (GUILayout.Button(AIBridgeEditorText.T("Copy Logs CLI", "复制日志命令")))
             {
-                CopyCommand("runtime logs --target " + QuoteTarget(player.TargetId) + " --logType Error --count 100");
+                CopyFileCommand("runtime logs --transport file --target " + QuoteTarget(player.TargetId) + " --logType Error --count 100");
             }
 
             if (GUILayout.Button(AIBridgeEditorText.T("Copy Screenshot CLI", "复制截图命令")))
             {
-                CopyCommand("runtime screenshot --target " + QuoteTarget(player.TargetId));
+                CopyFileCommand("runtime screenshot --transport file --target " + QuoteTarget(player.TargetId));
             }
 
             if (GUILayout.Button(AIBridgeEditorText.T("Open", "打开"), GUILayout.Width(58)))
@@ -135,6 +168,68 @@ namespace AIBridge.Editor
                 {
                     EditorUtility.RevealInFinder(player.TargetPath);
                 }
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawDiscoveredTargets()
+        {
+            if (_discoveredTargets.Count == 0)
+            {
+                EditorGUILayout.HelpBox(
+                    AIBridgeEditorText.T(
+                        "No LAN-discovered HTTP targets in cache. Run the discover CLI from the toolbar command after the Player is running on the phone.",
+                        "发现缓存中没有局域网 HTTP 目标。手机 Player 运行后，使用工具栏复制的 discover CLI 执行发现。"),
+                    MessageType.None);
+                return;
+            }
+
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("HTTP / LAN Discovered Targets", "HTTP / 局域网发现目标"), EditorStyles.boldLabel);
+            for (var i = 0; i < _discoveredTargets.Count; i++)
+            {
+                DrawDiscoveredTarget(_discoveredTargets[i]);
+                EditorGUILayout.Space(5);
+            }
+        }
+
+        private void DrawDiscoveredTarget(AIBridgeRuntimeDiscoveredTargetInfo target)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(target.TargetId, EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            var statusText = target.Stale
+                ? AIBridgeEditorText.T("CACHE", "缓存")
+                : AIBridgeEditorText.T("DISCOVERED", "已发现");
+            var previousColor = GUI.color;
+            GUI.color = target.Stale ? new Color(1f, 0.72f, 0.25f) : new Color(0.55f, 1f, 0.55f);
+            GUILayout.Label(statusText, EditorStyles.boldLabel, GUILayout.Width(96));
+            GUI.color = previousColor;
+            EditorGUILayout.EndHorizontal();
+
+            DrawInfoLine(AIBridgeEditorText.T("URL", "URL"), target.Url);
+            DrawInfoLine(AIBridgeEditorText.T("Project", "项目"), JoinNonEmpty(target.ProjectName, target.ApplicationVersion));
+            DrawInfoLine(AIBridgeEditorText.T("Device", "设备"), target.DeviceName);
+            DrawInfoLine(AIBridgeEditorText.T("Platform", "平台"), target.Platform);
+            DrawInfoLine(AIBridgeEditorText.T("Auth", "鉴权"), target.RequiresToken ? AIBridgeEditorText.T("Token required", "需要 Token") : AIBridgeEditorText.T("No token", "无 Token"));
+            DrawInfoLine(AIBridgeEditorText.T("Last Seen", "最后发现"), FormatDiscoveryAge(target));
+            DrawInfoLine(AIBridgeEditorText.T("Remote", "远端"), target.RemoteEndPoint);
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button(AIBridgeEditorText.T("Copy Status CLI", "复制状态命令")))
+            {
+                CopyDiscoveredCommand(target, "status");
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Copy Logs CLI", "复制日志命令")))
+            {
+                CopyDiscoveredCommand(target, "logs --logType Error --count 100");
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Copy Screenshot CLI", "复制截图命令")))
+            {
+                CopyDiscoveredCommand(target, "screenshot");
             }
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.EndVertical();
@@ -151,8 +246,12 @@ namespace AIBridge.Editor
         private void RefreshPlayers()
         {
             _runtimeDirectory = AIBridgeRuntimeBridgeEditorUtility.GetRuntimeDirectory();
+            _localHttpUrl = AIBridgeRuntimeBridgeEditorUtility.BuildLocalHttpUrl();
+            _discoveryCachePath = AIBridgeRuntimeBridgeEditorUtility.GetDiscoveryCachePath();
             _players.Clear();
             _players.AddRange(AIBridgeRuntimeBridgeEditorUtility.ListPlayers());
+            _discoveredTargets.Clear();
+            _discoveredTargets.AddRange(AIBridgeRuntimeBridgeEditorUtility.ListDiscoveredTargets());
             _lastRefreshTime = EditorApplication.timeSinceStartup;
             Repaint();
         }
@@ -164,10 +263,28 @@ namespace AIBridge.Editor
             EditorUtility.RevealInFinder(path);
         }
 
-        private static void CopyCommand(string commandBody)
+        private static void CopyFileCommand(string commandBody)
         {
             EditorGUIUtility.systemCopyBuffer = AIBridgeRuntimeBridgeEditorUtility.BuildCliCommand(commandBody);
             Debug.Log(AIBridgeEditorText.T("[AIBridge] Runtime CLI command copied.", "[AIBridge] Runtime CLI 命令已复制。"));
+        }
+
+        private static void CopyHttpCommand(string commandBody)
+        {
+            EditorGUIUtility.systemCopyBuffer = AIBridgeRuntimeBridgeEditorUtility.BuildCliCommand(commandBody, includeRuntimeDirectory: false);
+            Debug.Log(AIBridgeEditorText.T("[AIBridge] Runtime HTTP CLI command copied.", "[AIBridge] Runtime HTTP CLI 命令已复制。"));
+        }
+
+        private static void CopyDiscoveredCommand(AIBridgeRuntimeDiscoveredTargetInfo target, string action)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            CopyHttpCommand("runtime " + action
+                + " --transport http --url " + Quote(target.Url)
+                + " --target " + QuoteTarget(target.TargetId));
         }
 
         private string FormatRefreshAge()
@@ -184,6 +301,16 @@ namespace AIBridge.Editor
             }
 
             return player.AgeSeconds.Value.ToString("F1") + "s ago / " + player.LastHeartbeatUtc;
+        }
+
+        private static string FormatDiscoveryAge(AIBridgeRuntimeDiscoveredTargetInfo target)
+        {
+            if (target == null || !target.AgeSeconds.HasValue)
+            {
+                return "-";
+            }
+
+            return target.AgeSeconds.Value.ToString("F1") + "s ago / " + target.LastSeenUtc;
         }
 
         private static string JoinNonEmpty(string left, string right)
@@ -204,6 +331,11 @@ namespace AIBridge.Editor
             }
 
             return targetId.IndexOf(' ') >= 0 ? "\"" + targetId.Replace("\"", "\\\"") + "\"" : targetId;
+        }
+
+        private static string Quote(string value)
+        {
+            return AIBridgeRuntimeBridgeEditorUtility.Quote(value ?? string.Empty);
         }
     }
 }

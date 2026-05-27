@@ -38,6 +38,32 @@ namespace AIBridge.Editor
                 AIBridgeEditorText.T("Keep Running In Background", "后台保持运行"),
                 settings.KeepRunningInBackground);
 
+            settings.EnableHttpTransport = EditorGUILayout.Toggle(
+                AIBridgeEditorText.T("Enable HTTP Transport", "启用 HTTP Transport"),
+                settings.EnableHttpTransport);
+
+            using (new EditorGUI.DisabledScope(!settings.EnableHttpTransport))
+            {
+                settings.HttpBindAddress = EditorGUILayout.DelayedTextField(
+                    AIBridgeEditorText.T("HTTP Bind Address", "HTTP 监听地址"),
+                    settings.HttpBindAddress ?? string.Empty);
+
+                settings.HttpPort = EditorGUILayout.IntField(
+                    AIBridgeEditorText.T("HTTP Port", "HTTP 端口"),
+                    settings.HttpPort);
+
+                settings.EnableLanDiscovery = EditorGUILayout.Toggle(
+                    AIBridgeEditorText.T("Enable LAN Discovery", "启用局域网自动发现"),
+                    settings.EnableLanDiscovery);
+
+                using (new EditorGUI.DisabledScope(!settings.EnableLanDiscovery))
+                {
+                    settings.DiscoveryUdpPort = EditorGUILayout.IntField(
+                        AIBridgeEditorText.T("Discovery UDP Port", "发现 UDP 端口"),
+                        settings.DiscoveryUdpPort);
+                }
+            }
+
             settings.AllowRuntimeBridgeInReleaseBuild = EditorGUILayout.Toggle(
                 AIBridgeEditorText.T("Allow Runtime Bridge In Release Build", "允许 Release Build 启用 Runtime Bridge"),
                 settings.AllowRuntimeBridgeInReleaseBuild);
@@ -86,7 +112,13 @@ namespace AIBridge.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 settings.MaxResultBytes = Math.Max(1024, settings.MaxResultBytes);
+                settings.HttpBindAddress = string.IsNullOrWhiteSpace(settings.HttpBindAddress)
+                    ? AIBridgeProjectSettings.DefaultRuntimeBridgeHttpBindAddress
+                    : settings.HttpBindAddress.Trim();
+                settings.HttpPort = Math.Max(1, settings.HttpPort);
+                settings.DiscoveryUdpPort = Math.Max(1, settings.DiscoveryUdpPort);
                 AIBridgeProjectSettings.Instance.SaveSettings();
+                AIBridgeRuntimeBridgeEditorUtility.WriteRuntimeConfig();
                 AIBridgeRuntimeBuildProcessor.SyncRuntimeBootstrapDefinesForActiveTarget();
             }
 
@@ -96,6 +128,20 @@ namespace AIBridge.Editor
                 AIBridgeRuntimeBridgeEditorUtility.GetRuntimeDirectory(),
                 EditorStyles.wordWrappedMiniLabel,
                 GUILayout.Height(34));
+
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Runtime HTTP Entry", "Runtime HTTP 入口"), EditorStyles.boldLabel);
+            EditorGUILayout.SelectableLabel(
+                AIBridgeRuntimeBridgeEditorUtility.BuildLocalHttpUrl(),
+                EditorStyles.wordWrappedMiniLabel,
+                GUILayout.Height(20));
+
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Runtime Config", "Runtime 配置"), EditorStyles.boldLabel);
+            EditorGUILayout.SelectableLabel(
+                AIBridgeRuntimeBridgeEditorUtility.GetRuntimeConfigPath(),
+                EditorStyles.wordWrappedMiniLabel,
+                GUILayout.Height(20));
 
             EditorGUILayout.Space(8);
             EditorGUILayout.BeginHorizontal();
@@ -124,6 +170,23 @@ namespace AIBridge.Editor
             if (GUILayout.Button(AIBridgeEditorText.T("Copy Launch Args", "复制启动参数"), GUILayout.Height(24)))
             {
                 CopyLaunchArguments();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button(AIBridgeEditorText.T("Write Runtime Config", "写入 Runtime 配置"), GUILayout.Height(24)))
+            {
+                WriteRuntimeConfig();
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Copy HTTP Status CLI", "复制 HTTP 状态命令"), GUILayout.Height(24)))
+            {
+                CopyHttpStatusCommand();
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Copy Discover CLI", "复制发现命令"), GUILayout.Height(24)))
+            {
+                CopyDiscoverCommand();
             }
             EditorGUILayout.EndHorizontal();
 
@@ -191,6 +254,31 @@ namespace AIBridge.Editor
                 "--aibridge-runtime-dir " + AIBridgeRuntimeBridgeEditorUtility.Quote(runtimeDirectory)
                 + " --aibridge-target-id " + AIBridgeRuntimeBridgeEditorUtility.Quote(targetId);
             Debug.Log(AIBridgeEditorText.T("[AIBridge] Runtime launch arguments copied.", "[AIBridge] Runtime 启动参数已复制。"));
+        }
+
+        private static void WriteRuntimeConfig()
+        {
+            var path = AIBridgeRuntimeBridgeEditorUtility.WriteRuntimeConfig();
+            Debug.Log(AIBridgeEditorText.T(
+                "[AIBridge] Runtime config written: " + path,
+                "[AIBridge] Runtime 配置已写入：" + path));
+        }
+
+        private static void CopyHttpStatusCommand()
+        {
+            EditorGUIUtility.systemCopyBuffer = AIBridgeRuntimeBridgeEditorUtility.BuildCliCommand(
+                "runtime status --transport http --url " + AIBridgeRuntimeBridgeEditorUtility.Quote(AIBridgeRuntimeBridgeEditorUtility.BuildLocalHttpUrl()) + " --target latest",
+                includeRuntimeDirectory: false);
+            Debug.Log(AIBridgeEditorText.T("[AIBridge] Runtime HTTP CLI command copied.", "[AIBridge] Runtime HTTP CLI 命令已复制。"));
+        }
+
+        private static void CopyDiscoverCommand()
+        {
+            var settings = AIBridgeProjectSettings.Instance.RuntimeBridge;
+            EditorGUIUtility.systemCopyBuffer = AIBridgeRuntimeBridgeEditorUtility.BuildCliCommand(
+                "runtime discover --udpPort " + Math.Max(1, settings.DiscoveryUdpPort),
+                includeRuntimeDirectory: false);
+            Debug.Log(AIBridgeEditorText.T("[AIBridge] Runtime discovery CLI command copied.", "[AIBridge] Runtime 自动发现 CLI 命令已复制。"));
         }
     }
 }
