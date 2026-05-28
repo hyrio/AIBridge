@@ -361,6 +361,91 @@ namespace AIBridge.Editor.Tests
             Assert.That(diagnostics[1].code, Is.EqualTo("CS0162"));
         }
 
+        [Test]
+        public void CodeCacheCleaner_RemovesExpiredScriptsAndCompiledArtifacts()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "AIBridgeCodeCacheCleanerTests", Guid.NewGuid().ToString("N"));
+            var bridgeDirectory = Path.Combine(root, ".aibridge");
+            var codeDirectory = Path.Combine(bridgeDirectory, "code");
+            var compiledDirectory = Path.Combine(codeDirectory, ".compiled");
+            var nestedDirectory = Path.Combine(codeDirectory, "nested");
+            var now = new DateTime(2026, 5, 28, 12, 0, 0, DateTimeKind.Utc);
+            var staleTime = now.AddDays(-4);
+            var recentTime = now.AddDays(-2);
+
+            var staleScript = Path.Combine(codeDirectory, "old.csx");
+            var staleSource = Path.Combine(codeDirectory, "old_source.cs");
+            var recentScript = Path.Combine(codeDirectory, "recent.csx");
+            var ignoredText = Path.Combine(codeDirectory, "old.txt");
+            var nestedScript = Path.Combine(nestedDirectory, "nested_old.csx");
+            var staleGenerated = Path.Combine(compiledDirectory, "AIBridgeCode_old.generated.cs");
+            var staleDll = Path.Combine(compiledDirectory, "AIBridgeCode_old.dll");
+            var staleResponse = Path.Combine(compiledDirectory, "AIBridgeCode_old.rsp");
+            var recentDll = Path.Combine(compiledDirectory, "AIBridgeCode_recent.dll");
+            var ignoredPdb = Path.Combine(compiledDirectory, "AIBridgeCode_old.pdb");
+
+            try
+            {
+                Directory.CreateDirectory(compiledDirectory);
+                Directory.CreateDirectory(nestedDirectory);
+
+                WriteFile(staleScript, staleTime);
+                WriteFile(staleSource, staleTime);
+                WriteFile(recentScript, recentTime);
+                WriteFile(ignoredText, staleTime);
+                WriteFile(nestedScript, staleTime);
+                WriteFile(staleGenerated, staleTime);
+                WriteFile(staleDll, staleTime);
+                WriteFile(staleResponse, staleTime);
+                WriteFile(recentDll, recentTime);
+                WriteFile(ignoredPdb, staleTime);
+
+                var cleanedCount = CodeCacheCleaner.CleanupIfNeeded(bridgeDirectory, now, TimeSpan.FromDays(3));
+
+                Assert.That(cleanedCount, Is.EqualTo(5));
+                Assert.That(File.Exists(staleScript), Is.False);
+                Assert.That(File.Exists(staleSource), Is.False);
+                Assert.That(File.Exists(staleGenerated), Is.False);
+                Assert.That(File.Exists(staleDll), Is.False);
+                Assert.That(File.Exists(staleResponse), Is.False);
+                Assert.That(File.Exists(recentScript), Is.True);
+                Assert.That(File.Exists(ignoredText), Is.True);
+                Assert.That(File.Exists(nestedScript), Is.True);
+                Assert.That(File.Exists(recentDll), Is.True);
+                Assert.That(File.Exists(ignoredPdb), Is.True);
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, true);
+                }
+            }
+        }
+
+        [Test]
+        public void CodeCacheCleaner_WhenCodeDirectoryMissing_ReturnsZero()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "AIBridgeCodeCacheCleanerTests", Guid.NewGuid().ToString("N"));
+            var bridgeDirectory = Path.Combine(root, ".aibridge");
+
+            try
+            {
+                Directory.CreateDirectory(bridgeDirectory);
+
+                var cleanedCount = CodeCacheCleaner.CleanupIfNeeded(bridgeDirectory, DateTime.UtcNow, TimeSpan.FromDays(3));
+
+                Assert.That(cleanedCount, Is.EqualTo(0));
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, true);
+                }
+            }
+        }
+
         private static CommandResult ExecuteInline(string code, bool allowExperimental)
         {
             var request = new CommandRequest
@@ -380,6 +465,12 @@ namespace AIBridge.Editor.Tests
             }
 
             return new CodeCommand().Execute(request);
+        }
+
+        private static void WriteFile(string path, DateTime lastWriteTimeUtc)
+        {
+            File.WriteAllText(path, "return 1;");
+            File.SetLastWriteTimeUtc(path, lastWriteTimeUtc);
         }
 
         [Serializable]

@@ -71,6 +71,7 @@ namespace AIBridge.Editor
             CommandRegistry.Initialize();
             _watcher = new CommandWatcher(BridgeDirectory);
             LegacyCacheDirectoryCleaner.CleanupIfNeeded(GetProjectRoot(), BridgeDirectory);
+            CodeCacheCleaner.CleanupIfNeeded(BridgeDirectory);
             EditorInstanceTracker.Initialize(BridgeDirectory);
 
             // Subscribe to editor update
