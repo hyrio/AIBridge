@@ -7,7 +7,6 @@ namespace AIBridgeCodeIndex
     internal sealed class CodeIndexOptions
     {
         public string ProjectRoot { get; set; }
-        public string SolutionPath { get; set; }
         public string StatusPath { get; set; }
         public string Token { get; set; }
         public int UnityPid { get; set; }
@@ -37,7 +36,6 @@ namespace AIBridgeCodeIndex
             }
 
             values.TryGetValue("project-root", out var projectRoot);
-            values.TryGetValue("solution", out var solutionPath);
             values.TryGetValue("status-path", out var statusPath);
             values.TryGetValue("token", out var token);
 
@@ -62,7 +60,6 @@ namespace AIBridgeCodeIndex
             return new CodeIndexOptions
             {
                 ProjectRoot = projectRoot,
-                SolutionPath = solutionPath,
                 StatusPath = statusPath,
                 Token = string.IsNullOrWhiteSpace(token) ? Guid.NewGuid().ToString("N") : token,
                 UnityPid = unityPid,

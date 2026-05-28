@@ -16,6 +16,7 @@ namespace AIBridgeCLI.Commands
     public static class CodeIndexCommand
     {
         private const string IndexDirectoryName = "code-index";
+        private const string SnapshotDirectoryName = "snapshot";
         private const string DaemonDirectoryName = "CodeIndex";
         private const string DaemonAssemblyName = "AIBridgeCodeIndex";
         private static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings
@@ -102,10 +103,10 @@ namespace AIBridgeCLI.Commands
 
             if (!IsFallbackEnabled(context, options) || string.Equals(action, "diagnostics", StringComparison.OrdinalIgnoreCase))
             {
-                return BuildFailure(context, "Roslyn workspace is not ready.");
+                return BuildFailure(context, "Unity snapshot workspace is not ready.");
             }
 
-            return BuildFallback(context, action, options, "Roslyn workspace is not ready. Returned text-search candidates only.");
+            return BuildFallback(context, action, options, "Unity snapshot workspace is not ready. Returned text-search candidates only.");
         }
 
         private static async Task<JObject> WarmupAsync(CodeIndexContext context, int timeout, bool noWait)
@@ -119,7 +120,7 @@ namespace AIBridgeCLI.Commands
             var result = BuildStatusResult(context, status, status != null && status.Value<bool>("reachable"));
             result["success"] = true;
             result["semantic"] = IsReady(status);
-            result["source"] = "roslyn-msbuild";
+            result["source"] = "unity-snapshot";
             if (status != null && string.Equals(status.Value<string>("state"), "failed", StringComparison.OrdinalIgnoreCase))
             {
                 result["success"] = false;
@@ -146,10 +147,7 @@ namespace AIBridgeCLI.Commands
 
             await EnsureDaemonStoppedAsync(daemonPid);
 
-            if (Directory.Exists(context.IndexDirectory))
-            {
-                Directory.Delete(context.IndexDirectory, true);
-            }
+            ResetIndexDirectory(context, context.IncludeSnapshotOnReset);
 
             return new JObject
             {
@@ -160,8 +158,32 @@ namespace AIBridgeCLI.Commands
                 ["stale"] = true,
                 ["projectRoot"] = context.ProjectRoot,
                 ["solution"] = context.SolutionPath,
-                ["message"] = "code_index cache and daemon state were reset."
+                ["workspaceMode"] = "unity-snapshot",
+                ["snapshotExists"] = Directory.Exists(context.SnapshotDirectory),
+                ["message"] = context.IncludeSnapshotOnReset
+                    ? "code_index cache, daemon state, and Unity snapshot were reset."
+                    : "code_index daemon state and internal cache were reset; Unity snapshot was preserved."
             };
+        }
+
+        private static void ResetIndexDirectory(CodeIndexContext context, bool includeSnapshot)
+        {
+            if (!Directory.Exists(context.IndexDirectory))
+            {
+                return;
+            }
+
+            DeleteFileIfExists(context.StatusPath);
+            DeleteFileIfExists(Path.Combine(context.IndexDirectory, "lock.json"));
+            DeleteDirectoryIfExists(Path.Combine(context.IndexDirectory, "temp"));
+            DeleteDirectoryIfExists(Path.Combine(context.IndexDirectory, "logs"));
+            DeleteDirectoryIfExists(Path.Combine(context.IndexDirectory, "daemon"));
+            DeleteDirectoryIfExists(Path.Combine(context.IndexDirectory, "cache"));
+            DeleteDirectoryIfExists(Path.Combine(context.IndexDirectory, "index"));
+            if (includeSnapshot)
+            {
+                DeleteDirectoryIfExists(context.SnapshotDirectory);
+            }
         }
 
         private static async Task EnsureDaemonStoppedAsync(int daemonPid)
@@ -244,10 +266,10 @@ namespace AIBridgeCLI.Commands
                 suggestions.Add("Run from a Unity project root or pass --project-root.");
             }
 
-            if (string.IsNullOrWhiteSpace(context.SolutionPath) || !File.Exists(context.SolutionPath))
+            if (!File.Exists(context.SnapshotManifestPath))
             {
-                issues.Add("No .sln file was found at the project root.");
-                suggestions.Add("Open the Unity project once or regenerate C# project files from Unity External Tools.");
+                issues.Add("No Unity compilation snapshot found.");
+                suggestions.Add("Open the Unity project once or run Code Index prewarm from AIBridge settings.");
             }
 
             var daemon = CodeIndexDaemonExecutable.Resolve();
@@ -280,6 +302,19 @@ namespace AIBridgeCLI.Commands
                 ["stale"] = !reachable || !IsReady(remote ?? status),
                 ["projectRoot"] = context.ProjectRoot,
                 ["solution"] = context.SolutionPath,
+                ["workspaceMode"] = "unity-snapshot",
+                ["snapshotExists"] = File.Exists(context.SnapshotManifestPath),
+                ["snapshotPath"] = context.SnapshotManifestPath,
+                ["snapshotVersion"] = (remote ?? status)?.Value<int?>("snapshotVersion") ?? 0,
+                ["generationId"] = (remote ?? status)?.Value<string>("generationId"),
+                ["assemblyCount"] = (remote ?? status)?.Value<int?>("assemblyCount") ?? 0,
+                ["sourceFileCount"] = (remote ?? status)?.Value<int?>("sourceFileCount") ?? 0,
+                ["excludedAssemblyCount"] = (remote ?? status)?.Value<int?>("excludedAssemblyCount") ?? 0,
+                ["excludedSourceFileCount"] = (remote ?? status)?.Value<int?>("excludedSourceFileCount") ?? 0,
+                ["includePackageCacheSourceAssemblies"] = (remote ?? status)?.Value<bool?>("includePackageCacheSourceAssemblies") ?? false,
+                ["buildTarget"] = (remote ?? status)?.Value<string>("buildTarget"),
+                ["unityVersion"] = (remote ?? status)?.Value<string>("unityVersion"),
+                ["staleReason"] = (remote ?? status)?.Value<string>("staleReason"),
                 ["statusPath"] = context.StatusPath,
                 ["daemon"] = daemon.DisplayPath,
                 ["issues"] = issues,
@@ -303,9 +338,9 @@ namespace AIBridgeCLI.Commands
                 return await WaitUntilReadyAsync(status, timeout);
             }
 
-            if (string.IsNullOrWhiteSpace(context.SolutionPath) || !File.Exists(context.SolutionPath))
+            if (!File.Exists(context.SnapshotManifestPath))
             {
-                return BuildFailure(context, "No .sln file was found at the project root.");
+                return BuildFailure(context, "No Unity compilation snapshot found. Open the Unity project once or run Code Index prewarm from AIBridge settings.");
             }
 
             StartDaemon(context);
@@ -339,6 +374,8 @@ namespace AIBridgeCLI.Commands
             startInfo.UseShellExecute = false;
             startInfo.CreateNoWindow = true;
             startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+            startInfo.RedirectStandardOutput = true;
+            startInfo.RedirectStandardError = true;
             daemon.AddLaunchArguments(startInfo, context, token);
 
             var process = Process.Start(startInfo);
@@ -407,12 +444,15 @@ namespace AIBridgeCLI.Commands
                     ["stale"] = true,
                     ["projectRoot"] = context.ProjectRoot,
                     ["solution"] = context.SolutionPath,
+                    ["workspaceMode"] = "unity-snapshot",
+                    ["snapshotExists"] = File.Exists(context.SnapshotManifestPath),
+                    ["snapshotPath"] = context.SnapshotManifestPath,
                     ["statusPath"] = context.StatusPath,
                     ["reachable"] = false
                 };
             }
 
-            var manifestStale = IsManifestStale(context);
+            var manifestStale = IsSnapshotStale(context, status);
             return new JObject
             {
                 ["success"] = true,
@@ -422,6 +462,19 @@ namespace AIBridgeCLI.Commands
                 ["stale"] = !reachable || status.Value<bool?>("stale") == true || manifestStale,
                 ["projectRoot"] = status.Value<string>("projectRoot") ?? context.ProjectRoot,
                 ["solution"] = status.Value<string>("solution") ?? context.SolutionPath,
+                ["workspaceMode"] = status.Value<string>("workspaceMode") ?? "unity-snapshot",
+                ["snapshotExists"] = status.Value<bool?>("snapshotExists") ?? File.Exists(context.SnapshotManifestPath),
+                ["snapshotPath"] = context.SnapshotManifestPath,
+                ["snapshotVersion"] = status.Value<int?>("snapshotVersion") ?? 0,
+                ["generationId"] = status.Value<string>("generationId"),
+                ["assemblyCount"] = status.Value<int?>("assemblyCount") ?? 0,
+                ["sourceFileCount"] = status.Value<int?>("sourceFileCount") ?? 0,
+                ["excludedAssemblyCount"] = status.Value<int?>("excludedAssemblyCount") ?? 0,
+                ["excludedSourceFileCount"] = status.Value<int?>("excludedSourceFileCount") ?? 0,
+                ["includePackageCacheSourceAssemblies"] = status.Value<bool?>("includePackageCacheSourceAssemblies") ?? false,
+                ["buildTarget"] = status.Value<string>("buildTarget"),
+                ["unityVersion"] = status.Value<string>("unityVersion"),
+                ["staleReason"] = manifestStale ? "snapshotChanged" : status.Value<string>("staleReason"),
                 ["loadedProjects"] = status.Value<int?>("loadedProjects") ?? 0,
                 ["loadedDocuments"] = status.Value<int?>("loadedDocuments") ?? 0,
                 ["endpoint"] = status.Value<string>("endpoint"),
@@ -432,43 +485,43 @@ namespace AIBridgeCLI.Commands
             };
         }
 
-        private static bool IsManifestStale(CodeIndexContext context)
+        private static bool IsSnapshotStale(CodeIndexContext context, JObject status)
         {
             if (context == null)
             {
                 return true;
             }
 
-            var manifestPath = Path.Combine(context.IndexDirectory, "manifest.json");
-            if (!File.Exists(manifestPath))
+            if (!File.Exists(context.SnapshotManifestPath))
             {
                 return true;
+            }
+
+            var generationId = status == null ? null : status.Value<string>("generationId");
+            if (string.IsNullOrWhiteSpace(generationId))
+            {
+                return false;
+            }
+
+            return !string.Equals(generationId, ReadSnapshotGenerationId(context.SnapshotJsonPath), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ReadSnapshotGenerationId(string manifestJsonPath)
+        {
+            if (string.IsNullOrWhiteSpace(manifestJsonPath) || !File.Exists(manifestJsonPath))
+            {
+                return null;
             }
 
             try
             {
-                var entries = JArray.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
-                foreach (var item in entries.OfType<JObject>())
-                {
-                    var path = item.Value<string>("path");
-                    if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-                    {
-                        return true;
-                    }
-
-                    var info = new FileInfo(path);
-                    if (item.Value<long?>("ticks") != info.LastWriteTimeUtc.Ticks
-                        || item.Value<long?>("length") != info.Length)
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
+                var text = File.ReadAllText(manifestJsonPath, Encoding.UTF8);
+                var match = System.Text.RegularExpressions.Regex.Match(text, "\"generationId\"\\s*:\\s*\"(?<value>(?:\\\\.|[^\"])*)\"");
+                return match.Success ? System.Text.RegularExpressions.Regex.Unescape(match.Groups["value"].Value) : null;
             }
             catch
             {
-                return true;
+                return null;
             }
         }
 
@@ -497,7 +550,9 @@ namespace AIBridgeCLI.Commands
                 ["stale"] = true,
                 ["projectRoot"] = context.ProjectRoot,
                 ["solution"] = context.SolutionPath,
-                ["warning"] = string.IsNullOrWhiteSpace(warning) ? "Roslyn workspace is not ready. Returned text-search candidates only." : warning,
+                ["workspaceMode"] = "unity-snapshot",
+                ["snapshotExists"] = File.Exists(context.SnapshotManifestPath),
+                ["warning"] = string.IsNullOrWhiteSpace(warning) ? "Unity snapshot workspace is not ready. Returned text-search candidates only." : warning,
                 ["items"] = JArray.FromObject(items, JsonSerializer.Create(JsonSettings))
             };
         }
@@ -897,8 +952,26 @@ namespace AIBridgeCLI.Commands
                 ["stale"] = true,
                 ["projectRoot"] = context == null ? null : context.ProjectRoot,
                 ["solution"] = context == null ? null : context.SolutionPath,
+                ["workspaceMode"] = "unity-snapshot",
+                ["snapshotExists"] = context != null && File.Exists(context.SnapshotManifestPath),
                 ["error"] = error
             };
+        }
+
+        private static void DeleteFileIfExists(string path)
+        {
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+
+        private static void DeleteDirectoryIfExists(string path)
+        {
+            if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            {
+                Directory.Delete(path, true);
+            }
         }
 
         private static void Print(JObject result, OutputMode outputMode)
@@ -941,17 +1014,22 @@ namespace AIBridgeCLI.Commands
             public string ProjectRoot { get; private set; }
             public string SolutionPath { get; private set; }
             public string IndexDirectory { get; private set; }
+            public string SnapshotDirectory { get; private set; }
+            public string SnapshotManifestPath { get; private set; }
+            public string SnapshotJsonPath { get; private set; }
             public string StatusPath { get; private set; }
             public bool HasUnityProjectMarkers { get; private set; }
             public int UnityPid { get; private set; }
             public bool AutoRefresh { get; private set; }
             public bool FallbackToTextSearch { get; private set; }
+            public bool IncludeSnapshotOnReset { get; private set; }
 
             public static CodeIndexContext Resolve(Dictionary<string, string> options)
             {
                 var projectRoot = ResolveProjectRoot(options);
-                var solutionPath = ResolveSolutionPath(projectRoot, options);
+                var solutionPath = ResolveSolutionPath(projectRoot);
                 var indexDirectory = Path.Combine(projectRoot, ".aibridge", IndexDirectoryName);
+                var snapshotDirectory = Path.Combine(indexDirectory, SnapshotDirectoryName);
                 var unityPid = ResolveInt(options, "unity-pid");
                 var config = ReadCodeIndexConfig(indexDirectory);
                 return new CodeIndexContext
@@ -959,10 +1037,14 @@ namespace AIBridgeCLI.Commands
                     ProjectRoot = projectRoot,
                     SolutionPath = solutionPath,
                     IndexDirectory = indexDirectory,
+                    SnapshotDirectory = snapshotDirectory,
+                    SnapshotManifestPath = Path.Combine(snapshotDirectory, "manifest.bin"),
+                    SnapshotJsonPath = Path.Combine(snapshotDirectory, "manifest.json"),
                     StatusPath = Path.Combine(indexDirectory, "status.json"),
                     UnityPid = unityPid,
                     AutoRefresh = ResolveBool(options, "auto-refresh", GetConfigBool(config, "autoRefreshOnFileChange", true)),
                     FallbackToTextSearch = ResolveBool(options, "fallback", GetConfigBool(config, "fallbackToTextSearch", true)),
+                    IncludeSnapshotOnReset = ResolveBool(options, "include-snapshot", false),
                     HasUnityProjectMarkers = Directory.Exists(Path.Combine(projectRoot, "Assets"))
                                              && File.Exists(Path.Combine(projectRoot, "ProjectSettings", "ProjectSettings.asset"))
                 };
@@ -1037,15 +1119,8 @@ namespace AIBridgeCLI.Commands
                     : unityRoot;
             }
 
-            private static string ResolveSolutionPath(string projectRoot, Dictionary<string, string> options)
+            private static string ResolveSolutionPath(string projectRoot)
             {
-                if (options.TryGetValue("solution", out var explicitSolution) && !string.IsNullOrWhiteSpace(explicitSolution))
-                {
-                    return Path.IsPathRooted(explicitSolution)
-                        ? Path.GetFullPath(explicitSolution)
-                        : Path.GetFullPath(Path.Combine(projectRoot, explicitSolution));
-                }
-
                 var solutions = Directory.GetFiles(projectRoot, "*.sln", SearchOption.TopDirectoryOnly);
                 if (solutions.Length == 0)
                 {
@@ -1144,11 +1219,6 @@ namespace AIBridgeCLI.Commands
                 startInfo.ArgumentList.Add(context.StatusPath);
                 startInfo.ArgumentList.Add("--token");
                 startInfo.ArgumentList.Add(token);
-                if (!string.IsNullOrWhiteSpace(context.SolutionPath))
-                {
-                    startInfo.ArgumentList.Add("--solution");
-                    startInfo.ArgumentList.Add(context.SolutionPath);
-                }
 
                 if (context.UnityPid > 0)
                 {

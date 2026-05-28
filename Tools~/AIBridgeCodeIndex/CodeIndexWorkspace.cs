@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
-using Microsoft.CodeAnalysis.MSBuild;
 using Microsoft.CodeAnalysis.Text;
-using Newtonsoft.Json;
 
 namespace AIBridgeCodeIndex
 {
@@ -18,36 +18,65 @@ namespace AIBridgeCodeIndex
         private const int MaxSymbolResults = 100;
         private const int MaxReferenceResults = 500;
         private const int MaxDiagnosticResults = 500;
+        private const int SchemaVersion = 2;
+        private const int ManifestFormatKind = 1;
+        private const int AssemblyFormatKind = 2;
+        private const string Magic = "AIBCI";
+        private const string SnapshotRelativeDirectory = ".aibridge/code-index/snapshot";
+        private const string ManifestFileName = "manifest.bin";
 
         private readonly string _projectRoot;
         private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
-        private readonly object _manifestLock = new object();
-        private MSBuildWorkspace _workspace;
+        private readonly object _stateLock = new object();
+        private AdhocWorkspace _workspace;
         private Solution _solution;
+        private SnapshotManifest _manifest;
         private List<CodeIndexItem> _symbols = new List<CodeIndexItem>();
         private List<string> _workspaceWarnings = new List<string>();
-        private List<ManifestEntry> _manifest = new List<ManifestEntry>();
+        private string _loadedManifestHash;
 
-        public CodeIndexWorkspace(string projectRoot, string solutionPath)
+        public CodeIndexWorkspace(string projectRoot)
         {
             _projectRoot = Path.GetFullPath(projectRoot);
-            SolutionPath = ResolveSolutionPath(_projectRoot, solutionPath);
         }
 
-        public string SolutionPath { get; private set; }
+        public string SolutionPath { get { return null; } }
+        public string WorkspaceMode { get { return "unity-snapshot"; } }
+        public bool SnapshotExists { get; private set; }
+        public int SnapshotVersion { get; private set; }
+        public string GenerationId { get; private set; }
+        public int AssemblyCount { get; private set; }
+        public int SourceFileCount { get; private set; }
+        public int ExcludedAssemblyCount { get; private set; }
+        public int ExcludedSourceFileCount { get; private set; }
+        public bool IncludePackageCacheSourceAssemblies { get; private set; }
+        public string BuildTarget { get; private set; }
+        public string UnityVersion { get; private set; }
+        public string StaleReason { get; private set; }
         public int LoadedProjects { get; private set; }
         public int LoadedDocuments { get; private set; }
 
         public bool IsStale()
         {
-            lock (_manifestLock)
+            lock (_stateLock)
             {
-                if (_manifest == null || _manifest.Count == 0)
+                var manifestPath = GetManifestPath();
+                if (!File.Exists(manifestPath))
                 {
+                    StaleReason = "missingSnapshot";
+                    SnapshotExists = false;
                     return true;
                 }
 
-                return !AreManifestsEqual(_manifest, BuildManifest());
+                var hash = ComputeFileHash(manifestPath);
+                if (string.IsNullOrEmpty(_loadedManifestHash) || !string.Equals(hash, _loadedManifestHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    StaleReason = "manifestChanged";
+                    return true;
+                }
+
+                StaleReason = null;
+                return false;
             }
         }
 
@@ -56,41 +85,8 @@ namespace AIBridgeCodeIndex
             await _gate.WaitAsync();
             try
             {
-                if (string.IsNullOrWhiteSpace(SolutionPath) || !File.Exists(SolutionPath))
-                {
-                    throw new FileNotFoundException("Unity solution file was not found under project root.", SolutionPath);
-                }
-
-                var properties = new Dictionary<string, string>
-                {
-                    { "Configuration", "Debug" }
-                };
-
-                if (_workspace != null)
-                {
-                    _workspace.Dispose();
-                }
-
-                _workspaceWarnings = new List<string>();
-                _workspace = MSBuildWorkspace.Create(properties);
-                _workspace.WorkspaceFailed += (sender, args) =>
-                {
-                    if (args != null && args.Diagnostic != null)
-                    {
-                        _workspaceWarnings.Add(args.Diagnostic.Message);
-                    }
-                };
-
-                _solution = await _workspace.OpenSolutionAsync(SolutionPath);
-                LoadedProjects = _solution.Projects.Count();
-                LoadedDocuments = _solution.Projects.SelectMany(project => project.Documents).Count(document => IsCSharpDocument(document));
+                LoadSnapshotWorkspace();
                 _symbols = await BuildSymbolTableAsync(_solution);
-                lock (_manifestLock)
-                {
-                    _manifest = BuildManifest();
-                }
-
-                WriteManifestFile();
             }
             finally
             {
@@ -120,24 +116,131 @@ namespace AIBridgeCodeIndex
                     case "diagnostics":
                         return await QueryDiagnosticsAsync(parameters);
                     default:
-                        return new CodeIndexResponse
-                        {
-                            success = false,
-                            semantic = true,
-                            source = "roslyn-msbuild",
-                            state = "ready",
-                            stale = false,
-                            projectRoot = _projectRoot,
-                            solution = SolutionPath,
-                            loadedProjects = LoadedProjects,
-                            loadedDocuments = LoadedDocuments,
-                            error = "Unsupported code_index action: " + action
-                        };
+                        return BuildResponse("Unsupported code_index action: " + action);
                 }
             }
             finally
             {
                 _gate.Release();
+            }
+        }
+
+        private void LoadSnapshotWorkspace()
+        {
+            var manifestPath = GetManifestPath();
+            SnapshotExists = File.Exists(manifestPath);
+            if (!SnapshotExists)
+            {
+                StaleReason = "missingSnapshot";
+                throw new FileNotFoundException("No Unity compilation snapshot found. Open the Unity project once or run Code Index prewarm from AIBridge settings.", manifestPath);
+            }
+
+            var manifest = ReadManifest(manifestPath);
+            ValidateSnapshotFiles(manifest);
+
+            var workspace = new AdhocWorkspace();
+            var solution = workspace.CurrentSolution;
+            var projectIds = new Dictionary<string, ProjectId>(StringComparer.OrdinalIgnoreCase);
+            var assembliesById = manifest.Assemblies.ToDictionary(item => item.AssemblyId, StringComparer.OrdinalIgnoreCase);
+
+            for (var i = 0; i < manifest.Assemblies.Count; i++)
+            {
+                var assembly = ReadAssemblySnapshot(Path.Combine(GetSnapshotDirectory(), manifest.Assemblies[i].SnapshotFile));
+                manifest.Assemblies[i].Sources = assembly.Sources;
+                manifest.Assemblies[i].References = assembly.References;
+                manifest.Assemblies[i].Defines = assembly.Defines;
+                manifest.Assemblies[i].CompilerOptions = assembly.CompilerOptions;
+                manifest.Assemblies[i].ProjectReferenceAssemblyNames = assembly.ProjectReferenceAssemblyNames;
+            }
+
+            for (var i = 0; i < manifest.Assemblies.Count; i++)
+            {
+                var record = manifest.Assemblies[i];
+                var projectId = ProjectId.CreateNewId(record.AssemblyName);
+                projectIds[record.AssemblyId] = projectId;
+                var parseOptions = BuildParseOptions(record);
+                var compilationOptions = new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    allowUnsafe: record.AllowUnsafe);
+                var info = ProjectInfo.Create(
+                    projectId,
+                    VersionStamp.Create(),
+                    record.AssemblyName,
+                    record.AssemblyName,
+                    LanguageNames.CSharp,
+                    filePath: ResolveAbsolutePath(record.AsmdefPath),
+                    outputFilePath: ResolveAbsolutePath(record.OutputPath),
+                    compilationOptions: compilationOptions,
+                    parseOptions: parseOptions);
+                solution = solution.AddProject(info);
+            }
+
+            for (var i = 0; i < manifest.Assemblies.Count; i++)
+            {
+                var record = manifest.Assemblies[i];
+                var projectId = projectIds[record.AssemblyId];
+                var metadataReferences = BuildMetadataReferences(record);
+                solution = solution.AddMetadataReferences(projectId, metadataReferences);
+
+                for (var j = 0; j < record.DependencyAssemblyIds.Count; j++)
+                {
+                    ProjectId dependencyId;
+                    if (projectIds.TryGetValue(record.DependencyAssemblyIds[j], out dependencyId))
+                    {
+                        solution = solution.AddProjectReference(projectId, new ProjectReference(dependencyId));
+                    }
+                }
+
+                for (var j = 0; j < record.Sources.Count; j++)
+                {
+                    var sourcePath = ResolveAbsolutePath(record.Sources[j].Path);
+                    if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                    {
+                        continue;
+                    }
+
+                    var documentId = DocumentId.CreateNewId(projectId, record.Sources[j].Path);
+                    var text = SourceText.From(File.ReadAllText(sourcePath, Encoding.UTF8), Encoding.UTF8);
+                    solution = solution.AddDocument(documentId, Path.GetFileName(sourcePath), text, filePath: sourcePath);
+                }
+            }
+
+            if (_workspace != null)
+            {
+                _workspace.Dispose();
+            }
+
+            _workspace = workspace;
+            _solution = solution;
+            workspace.TryApplyChanges(solution);
+
+            SnapshotVersion = manifest.SchemaVersion;
+            GenerationId = manifest.GenerationId;
+            AssemblyCount = manifest.Assemblies.Count;
+            SourceFileCount = manifest.Assemblies.Sum(item => item.Sources.Count);
+            ExcludedAssemblyCount = manifest.ExcludedAssemblyCount;
+            ExcludedSourceFileCount = manifest.ExcludedSourceFileCount;
+            IncludePackageCacheSourceAssemblies = manifest.IncludePackageCacheSourceAssemblies;
+            BuildTarget = manifest.BuildTarget;
+            UnityVersion = manifest.UnityVersion;
+            LoadedProjects = _solution.Projects.Count();
+            LoadedDocuments = _solution.Projects.SelectMany(project => project.Documents).Count(IsCSharpDocument);
+            _manifest = manifest;
+            _loadedManifestHash = ComputeFileHash(manifestPath);
+            StaleReason = null;
+            SnapshotExists = true;
+        }
+
+        private void ValidateSnapshotFiles(SnapshotManifest manifest)
+        {
+            for (var i = 0; i < manifest.Assemblies.Count; i++)
+            {
+                var record = manifest.Assemblies[i];
+                if (!File.Exists(Path.Combine(GetSnapshotDirectory(), record.SnapshotFile)))
+                {
+                    StaleReason = "missingAssemblySnapshot";
+                    throw new FileNotFoundException("Unity compilation snapshot assembly file is missing.", record.SnapshotFile);
+                }
             }
         }
 
@@ -159,11 +262,7 @@ namespace AIBridgeCodeIndex
                 .Take(MaxSymbolResults)
                 .ToList();
 
-            return new CodeIndexResponse
-            {
-                items = items,
-                warning = BuildWorkspaceWarning()
-            };
+            return BuildResponse(null, items);
         }
 
         private async Task<CodeIndexResponse> QueryDefinitionAsync(Dictionary<string, object> parameters)
@@ -181,11 +280,7 @@ namespace AIBridgeCodeIndex
                 }
             }
 
-            return new CodeIndexResponse
-            {
-                items = items,
-                warning = BuildWorkspaceWarning()
-            };
+            return BuildResponse(null, items);
         }
 
         private async Task<CodeIndexResponse> QueryReferencesAsync(Dictionary<string, object> parameters)
@@ -207,16 +302,12 @@ namespace AIBridgeCodeIndex
                 }
             }
 
-            return new CodeIndexResponse
-            {
-                items = items
-                    .OrderBy(item => item.file, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(item => item.line)
-                    .ThenBy(item => item.column)
-                    .Take(MaxReferenceResults)
-                    .ToList(),
-                warning = BuildWorkspaceWarning()
-            };
+            return BuildResponse(null, items
+                .OrderBy(item => item.file, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.line)
+                .ThenBy(item => item.column)
+                .Take(MaxReferenceResults)
+                .ToList());
         }
 
         private async Task<CodeIndexResponse> QueryImplementationsAsync(Dictionary<string, object> parameters)
@@ -233,15 +324,11 @@ namespace AIBridgeCodeIndex
                 }
             }
 
-            return new CodeIndexResponse
-            {
-                items = DistinctItems(items)
-                    .OrderBy(item => item.file, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(item => item.line)
-                    .Take(MaxReferenceResults)
-                    .ToList(),
-                warning = type == null ? "Type was not found in the loaded solution." : BuildWorkspaceWarning()
-            };
+            return BuildResponse(type == null ? "Type was not found in the loaded snapshot workspace." : null, DistinctItems(items)
+                .OrderBy(item => item.file, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.line)
+                .Take(MaxReferenceResults)
+                .ToList());
         }
 
         private async Task<CodeIndexResponse> QueryDerivedAsync(Dictionary<string, object> parameters)
@@ -276,15 +363,11 @@ namespace AIBridgeCodeIndex
                 }
             }
 
-            return new CodeIndexResponse
-            {
-                items = DistinctItems(items)
-                    .OrderBy(item => item.file, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(item => item.line)
-                    .Take(MaxReferenceResults)
-                    .ToList(),
-                warning = type == null ? "Type was not found in the loaded solution." : BuildWorkspaceWarning()
-            };
+            return BuildResponse(type == null ? "Type was not found in the loaded snapshot workspace." : null, DistinctItems(items)
+                .OrderBy(item => item.file, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.line)
+                .Take(MaxReferenceResults)
+                .ToList());
         }
 
         private async Task<CodeIndexResponse> QueryCallersAsync(Dictionary<string, object> parameters)
@@ -306,16 +389,12 @@ namespace AIBridgeCodeIndex
                 }
             }
 
-            return new CodeIndexResponse
-            {
-                items = DistinctItems(items)
-                    .OrderBy(item => item.file, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(item => item.line)
-                    .ThenBy(item => item.column)
-                    .Take(MaxReferenceResults)
-                    .ToList(),
-                warning = BuildWorkspaceWarning()
-            };
+            return BuildResponse(null, DistinctItems(items)
+                .OrderBy(item => item.file, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.line)
+                .ThenBy(item => item.column)
+                .Take(MaxReferenceResults)
+                .ToList());
         }
 
         private async Task<CodeIndexResponse> QueryDiagnosticsAsync(Dictionary<string, object> parameters)
@@ -341,18 +420,14 @@ namespace AIBridgeCodeIndex
                 }
             }
 
-            return new CodeIndexResponse
-            {
-                items = diagnostics
-                    .Where(diagnostic => diagnostic != null)
-                    .OrderByDescending(diagnostic => diagnostic.Severity)
-                    .ThenBy(diagnostic => diagnostic.Location == null ? string.Empty : diagnostic.Location.GetLineSpan().Path, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(diagnostic => diagnostic.Location == null ? 0 : diagnostic.Location.GetLineSpan().StartLinePosition.Line)
-                    .Take(MaxDiagnosticResults)
-                    .Select(ToDiagnosticItem)
-                    .ToList(),
-                warning = BuildWorkspaceWarning()
-            };
+            return BuildResponse(null, diagnostics
+                .Where(diagnostic => diagnostic != null)
+                .OrderByDescending(diagnostic => diagnostic.Severity)
+                .ThenBy(diagnostic => diagnostic.Location == null ? string.Empty : diagnostic.Location.GetLineSpan().Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(diagnostic => diagnostic.Location == null ? 0 : diagnostic.Location.GetLineSpan().StartLinePosition.Line)
+                .Take(MaxDiagnosticResults)
+                .Select(ToDiagnosticItem)
+                .ToList());
         }
 
         private Document ResolveDocument(Dictionary<string, object> parameters, out SourceText sourceText, out int position)
@@ -371,17 +446,7 @@ namespace AIBridgeCodeIndex
                 throw new ArgumentException("--line and --column must be positive 1-based numbers.");
             }
 
-            var fullPath = Path.IsPathRooted(file)
-                ? Path.GetFullPath(file)
-                : Path.GetFullPath(Path.Combine(_projectRoot, file));
-            var document = _solution.Projects
-                .SelectMany(project => project.Documents)
-                .FirstOrDefault(item => string.Equals(Path.GetFullPath(item.FilePath ?? string.Empty), fullPath, StringComparison.OrdinalIgnoreCase));
-            if (document == null)
-            {
-                throw new FileNotFoundException("File is not part of the loaded Roslyn solution.", file);
-            }
-
+            var document = ResolveDocument(file);
             sourceText = document.GetTextAsync().GetAwaiter().GetResult();
             if (line > sourceText.Lines.Count)
             {
@@ -410,7 +475,7 @@ namespace AIBridgeCodeIndex
                 .FirstOrDefault(item => string.Equals(Path.GetFullPath(item.FilePath ?? string.Empty), fullPath, StringComparison.OrdinalIgnoreCase));
             if (document == null)
             {
-                throw new FileNotFoundException("File is not part of the loaded Roslyn solution.", file);
+                throw new FileNotFoundException("File is not part of the loaded Unity snapshot workspace.", file);
             }
 
             return document;
@@ -632,6 +697,15 @@ namespace AIBridgeCodeIndex
             });
         }
 
+        private CodeIndexResponse BuildResponse(string warning, List<CodeIndexItem> items = null)
+        {
+            return new CodeIndexResponse
+            {
+                items = items,
+                warning = string.IsNullOrWhiteSpace(warning) ? BuildWorkspaceWarning() : warning
+            };
+        }
+
         private string ToProjectRelativePath(string path)
         {
             var fullPath = Path.GetFullPath(path);
@@ -671,192 +745,241 @@ namespace AIBridgeCodeIndex
                 && document.FilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string ResolveSolutionPath(string projectRoot, string explicitSolutionPath)
+        private IEnumerable<MetadataReference> BuildMetadataReferences(AssemblySnapshot record)
         {
-            if (!string.IsNullOrWhiteSpace(explicitSolutionPath))
+            var result = new List<MetadataReference>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < record.References.Count; i++)
             {
-                return Path.IsPathRooted(explicitSolutionPath)
-                    ? Path.GetFullPath(explicitSolutionPath)
-                    : Path.GetFullPath(Path.Combine(projectRoot, explicitSolutionPath));
+                var path = ResolveAbsolutePath(record.References[i].Path);
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || !seen.Add(path))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    result.Add(MetadataReference.CreateFromFile(path));
+                }
+                catch (Exception ex)
+                {
+                    _workspaceWarnings.Add("Failed to load metadata reference " + path + ": " + ex.Message);
+                }
             }
 
-            var solutions = Directory.GetFiles(projectRoot, "*.sln", SearchOption.TopDirectoryOnly);
-            if (solutions.Length == 0)
+            return result;
+        }
+
+        private CSharpParseOptions BuildParseOptions(AssemblySnapshot record)
+        {
+            var languageVersion = ParseLanguageVersion(record.LanguageVersion);
+            return new CSharpParseOptions(
+                languageVersion: languageVersion,
+                preprocessorSymbols: record.Defines ?? new List<string>(),
+                documentationMode: DocumentationMode.Parse);
+        }
+
+        private static LanguageVersion ParseLanguageVersion(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return LanguageVersion.CSharp9;
+            }
+
+            var normalized = value.Trim();
+            if (normalized == "7.3")
+            {
+                return LanguageVersion.CSharp7_3;
+            }
+
+            if (normalized == "8" || normalized == "8.0")
+            {
+                return LanguageVersion.CSharp8;
+            }
+
+            return LanguageVersion.CSharp9;
+        }
+
+        private SnapshotManifest ReadManifest(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var reader = new BinaryReader(stream, Encoding.UTF8))
+            {
+                ReadHeader(reader, ManifestFormatKind);
+                var manifest = new SnapshotManifest
+                {
+                    SchemaVersion = reader.ReadInt32(),
+                    ProjectRootHash = ReadString(reader),
+                    UnityVersion = ReadString(reader),
+                    BuildTarget = ReadString(reader),
+                    GenerationId = ReadString(reader),
+                    IncludePackageCacheSourceAssemblies = reader.ReadBoolean(),
+                    IgnoredAssemblyPatterns = ReadStringList(reader),
+                    IgnoredSourcePathPatterns = ReadStringList(reader),
+                    FilterHash = ReadString(reader),
+                    ExcludedAssemblyCount = reader.ReadInt32(),
+                    ExcludedSourceFileCount = reader.ReadInt32()
+                };
+
+                if (manifest.SchemaVersion != SchemaVersion)
+                {
+                    StaleReason = "schemaMismatch";
+                    throw new InvalidDataException("Unsupported Code Index snapshot schema version: " + manifest.SchemaVersion);
+                }
+
+                var count = reader.ReadInt32();
+                for (var i = 0; i < count; i++)
+                {
+                    manifest.Assemblies.Add(ReadAssemblyRecord(reader));
+                }
+
+                return manifest;
+            }
+        }
+
+        private AssemblySnapshot ReadAssemblySnapshot(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var reader = new BinaryReader(stream, Encoding.UTF8))
+            {
+                ReadHeader(reader, AssemblyFormatKind);
+                var record = ReadAssemblyRecord(reader);
+                record.Defines = ReadStringList(reader);
+                record.Sources = ReadFileStates(reader);
+                record.References = ReadFileStates(reader);
+                record.ProjectReferenceAssemblyNames = ReadStringList(reader);
+                record.CompilerOptions = ReadStringList(reader);
+                return record;
+            }
+        }
+
+        private static void ReadHeader(BinaryReader reader, int expectedFormatKind)
+        {
+            var magic = Encoding.ASCII.GetString(reader.ReadBytes(Magic.Length));
+            if (!string.Equals(magic, Magic, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("Invalid Code Index snapshot header.");
+            }
+
+            var schema = reader.ReadInt32();
+            var formatKind = reader.ReadInt32();
+            reader.ReadInt64();
+            if (schema != SchemaVersion || formatKind != expectedFormatKind)
+            {
+                throw new InvalidDataException("Unsupported Code Index snapshot format.");
+            }
+        }
+
+        private static AssemblySnapshot ReadAssemblyRecord(BinaryReader reader)
+        {
+            return new AssemblySnapshot
+            {
+                AssemblyName = ReadString(reader),
+                AssemblyId = ReadString(reader),
+                SnapshotFile = ReadString(reader),
+                NameIndexFile = ReadString(reader),
+                TokenIndexFile = ReadString(reader),
+                OutputPath = ReadString(reader),
+                AsmdefPath = ReadString(reader),
+                LanguageVersion = ReadString(reader),
+                AllowUnsafe = reader.ReadBoolean(),
+                SourceFileCount = reader.ReadInt32(),
+                ReferenceCount = reader.ReadInt32(),
+                DefinesHash = ReadString(reader),
+                SourcesHash = ReadString(reader),
+                ReferencesHash = ReadString(reader),
+                CompilerOptionsHash = ReadString(reader),
+                AssemblyHash = ReadString(reader),
+                LastWriteTimeTicks = reader.ReadInt64(),
+                DependencyAssemblyIds = ReadStringList(reader),
+                ReverseDependencyAssemblyIds = ReadStringList(reader)
+            };
+        }
+
+        private static List<string> ReadStringList(BinaryReader reader)
+        {
+            var count = reader.ReadInt32();
+            var result = new List<string>(Math.Max(0, count));
+            for (var i = 0; i < count; i++)
+            {
+                result.Add(ReadString(reader));
+            }
+
+            return result;
+        }
+
+        private static List<FileState> ReadFileStates(BinaryReader reader)
+        {
+            var count = reader.ReadInt32();
+            var result = new List<FileState>(Math.Max(0, count));
+            for (var i = 0; i < count; i++)
+            {
+                result.Add(new FileState
+                {
+                    Path = ReadString(reader),
+                    Length = reader.ReadInt64(),
+                    LastWriteTimeTicks = reader.ReadInt64(),
+                    Hash = ReadString(reader)
+                });
+            }
+
+            return result;
+        }
+
+        private static string ReadString(BinaryReader reader)
+        {
+            var length = reader.ReadInt32();
+            if (length < 0)
             {
                 return null;
             }
 
-            var projectName = new DirectoryInfo(projectRoot).Name;
-            var matching = solutions.FirstOrDefault(path => string.Equals(Path.GetFileNameWithoutExtension(path), projectName, StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrEmpty(matching))
+            return Encoding.UTF8.GetString(reader.ReadBytes(length));
+        }
+
+        private string GetSnapshotDirectory()
+        {
+            return Path.Combine(_projectRoot, SnapshotRelativeDirectory);
+        }
+
+        private string GetManifestPath()
+        {
+            return Path.Combine(GetSnapshotDirectory(), ManifestFileName);
+        }
+
+        private string ResolveAbsolutePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
             {
-                return matching;
+                return null;
             }
 
-            return solutions
-                .OrderByDescending(path => File.GetLastWriteTimeUtc(path))
-                .FirstOrDefault();
+            return Path.IsPathRooted(path)
+                ? Path.GetFullPath(path)
+                : Path.GetFullPath(Path.Combine(_projectRoot, path));
         }
 
-        private List<ManifestEntry> BuildManifest()
-        {
-            var entries = new List<ManifestEntry>();
-            AddManifestFile(entries, SolutionPath);
-            AddManifestFiles(entries, _projectRoot, "*.cs", SearchOption.AllDirectories);
-            AddManifestFiles(entries, _projectRoot, "*.csproj", SearchOption.TopDirectoryOnly);
-            AddManifestFiles(entries, _projectRoot, "*.asmdef", SearchOption.AllDirectories);
-            AddManifestFile(entries, Path.Combine(_projectRoot, "Packages", "manifest.json"));
-            AddManifestFile(entries, Path.Combine(_projectRoot, "Packages", "packages-lock.json"));
-            return entries
-                .Where(entry => entry != null)
-                .OrderBy(entry => entry.path, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-
-        private void WriteManifestFile()
+        private static string ComputeFileHash(string path)
         {
             try
             {
-                var directory = Path.Combine(_projectRoot, ".aibridge", "code-index");
-                Directory.CreateDirectory(directory);
-                List<ManifestEntry> snapshot;
-                lock (_manifestLock)
+                using (var sha = System.Security.Cryptography.SHA256.Create())
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 {
-                    snapshot = _manifest == null ? new List<ManifestEntry>() : _manifest.ToList();
-                }
+                    var bytes = sha.ComputeHash(stream);
+                    var builder = new StringBuilder(bytes.Length * 2);
+                    for (var i = 0; i < bytes.Length; i++)
+                    {
+                        builder.Append(bytes[i].ToString("x2"));
+                    }
 
-                File.WriteAllText(
-                    Path.Combine(directory, "manifest.json"),
-                    JsonConvert.SerializeObject(snapshot, Formatting.Indented),
-                    System.Text.Encoding.UTF8);
+                    return builder.ToString();
+                }
             }
             catch
             {
-                // manifest 是可删除缓存，写入失败不影响语义查询。
+                return null;
             }
-        }
-
-        private static void AddManifestFile(List<ManifestEntry> entries, string path)
-        {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            {
-                return;
-            }
-
-            var file = new FileInfo(path);
-            entries.Add(new ManifestEntry
-            {
-                path = path.Replace('\\', '/'),
-                ticks = file.LastWriteTimeUtc.Ticks,
-                length = file.Length
-            });
-        }
-
-        private void AddManifestFiles(List<ManifestEntry> entries, string root, string pattern, SearchOption searchOption)
-        {
-            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
-            {
-                return;
-            }
-
-            var pending = new Stack<string>();
-            pending.Push(root);
-            while (pending.Count > 0)
-            {
-                var directory = pending.Pop();
-                string[] files;
-                try
-                {
-                    files = Directory.GetFiles(directory, pattern, SearchOption.TopDirectoryOnly);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                foreach (var path in files)
-                {
-                    if (ShouldSkipManifestFile(path))
-                    {
-                        continue;
-                    }
-
-                    AddManifestFile(entries, path);
-                }
-
-                if (searchOption != SearchOption.AllDirectories)
-                {
-                    continue;
-                }
-
-                string[] directories;
-                try
-                {
-                    directories = Directory.GetDirectories(directory);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                foreach (var childDirectory in directories)
-                {
-                    if (!ShouldSkipManifestDirectory(childDirectory))
-                    {
-                        pending.Push(childDirectory);
-                    }
-                }
-            }
-        }
-
-        private bool ShouldSkipManifestFile(string path)
-        {
-            var relative = ToProjectRelativePath(path);
-            return relative.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
-                || relative.StartsWith(".aibridge/code-index/", StringComparison.OrdinalIgnoreCase)
-                || relative.StartsWith("Library/", StringComparison.OrdinalIgnoreCase)
-                || relative.StartsWith("Temp/", StringComparison.OrdinalIgnoreCase)
-                || relative.StartsWith("obj/", StringComparison.OrdinalIgnoreCase)
-                || relative.StartsWith("bin/", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private bool ShouldSkipManifestDirectory(string path)
-        {
-            var name = Path.GetFileName(path);
-            if (string.Equals(name, ".git", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "Library", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "Temp", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "obj", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "bin", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            var relative = ToProjectRelativePath(path).TrimEnd('/') + "/";
-            return relative.StartsWith(".aibridge/code-index/", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool AreManifestsEqual(List<ManifestEntry> left, List<ManifestEntry> right)
-        {
-            if (left == null || right == null || left.Count != right.Count)
-            {
-                return false;
-            }
-
-            for (var i = 0; i < left.Count; i++)
-            {
-                var a = left[i];
-                var b = right[i];
-                if (a == null || b == null
-                    || !string.Equals(a.path, b.path, StringComparison.OrdinalIgnoreCase)
-                    || a.ticks != b.ticks
-                    || a.length != b.length)
-                {
-                    return false;
-                }
-            }
-
-            return true;
         }
 
         private string BuildWorkspaceWarning()
@@ -926,11 +1049,56 @@ namespace AIBridgeCodeIndex
             return result;
         }
 
-        private sealed class ManifestEntry
+        private sealed class SnapshotManifest
         {
-            public string path { get; set; }
-            public long ticks { get; set; }
-            public long length { get; set; }
+            public int SchemaVersion;
+            public string ProjectRootHash;
+            public string UnityVersion;
+            public string BuildTarget;
+            public string GenerationId;
+            public bool IncludePackageCacheSourceAssemblies;
+            public List<string> IgnoredAssemblyPatterns = new List<string>();
+            public List<string> IgnoredSourcePathPatterns = new List<string>();
+            public string FilterHash;
+            public int ExcludedAssemblyCount;
+            public int ExcludedSourceFileCount;
+            public List<AssemblySnapshot> Assemblies = new List<AssemblySnapshot>();
+        }
+
+        private sealed class AssemblySnapshot
+        {
+            public string AssemblyName;
+            public string AssemblyId;
+            public string SnapshotFile;
+            public string NameIndexFile;
+            public string TokenIndexFile;
+            public string OutputPath;
+            public string AsmdefPath;
+            public string LanguageVersion;
+            public bool AllowUnsafe;
+            public int SourceFileCount;
+            public int ReferenceCount;
+            public string DefinesHash;
+            public string SourcesHash;
+            public string ReferencesHash;
+            public string CompilerOptionsHash;
+            public string AssemblyHash;
+            public long LastWriteTimeTicks;
+            public List<string> DependencyAssemblyIds = new List<string>();
+            public List<string> ReverseDependencyAssemblyIds = new List<string>();
+            public List<string> Defines = new List<string>();
+            public List<FileState> Sources = new List<FileState>();
+            public List<FileState> References = new List<FileState>();
+            public List<string> ProjectReferenceAssemblyNames = new List<string>();
+            public List<string> CompilerOptions = new List<string>();
+        }
+
+        private sealed class FileState
+        {
+            public string Path;
+            public long Length;
+            public long LastWriteTimeTicks;
+            public string Hash;
         }
     }
 }

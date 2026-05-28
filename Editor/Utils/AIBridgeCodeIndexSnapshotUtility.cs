@@ -1,0 +1,1283 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using UnityEditor;
+using UnityEditor.Compilation;
+using UnityEngine;
+
+namespace AIBridge.Editor
+{
+    internal static class AIBridgeCodeIndexSnapshotUtility
+    {
+        private const int SchemaVersion = 2;
+        private const int ManifestFormatKind = 1;
+        private const int AssemblyFormatKind = 2;
+        private const int TextIndexFormatKind = 3;
+        private const string Magic = "AIBCI";
+        private const string SnapshotDirectoryName = "snapshot";
+        private const string AssembliesDirectoryName = "assemblies";
+        private const string IndexDirectoryName = "index";
+        private const string NamesDirectoryName = "names";
+        private const string TokensDirectoryName = "tokens";
+        private const string ManifestBinFileName = "manifest.bin";
+        private const string ManifestJsonFileName = "manifest.json";
+        private const string AssemblySnapshotExtension = ".bin";
+        private const string IndexExtension = ".idx";
+        private static readonly Regex TokenRegex = new Regex("[A-Za-z_][A-Za-z0-9_]*", RegexOptions.Compiled);
+
+        public static string GetSnapshotDirectory()
+        {
+            return Path.Combine(AIBridgeCodeIndexEditorUtility.GetIndexDirectory(), SnapshotDirectoryName);
+        }
+
+        public static bool GenerateSnapshot(out string message)
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                var projectRoot = GetProjectRoot();
+                var snapshotDirectory = GetSnapshotDirectory();
+                var assembliesDirectory = Path.Combine(snapshotDirectory, AssembliesDirectoryName);
+                var nameIndexDirectory = Path.Combine(snapshotDirectory, IndexDirectoryName, NamesDirectoryName);
+                var tokenIndexDirectory = Path.Combine(snapshotDirectory, IndexDirectoryName, TokensDirectoryName);
+                Directory.CreateDirectory(assembliesDirectory);
+                Directory.CreateDirectory(nameIndexDirectory);
+                Directory.CreateDirectory(tokenIndexDirectory);
+
+                var filterConfig = CreateFilterConfig(AIBridgeProjectSettings.Instance.CodeIndex);
+                var previousHashes = ReadPreviousAssemblyHashes(Path.Combine(snapshotDirectory, ManifestJsonFileName));
+                var collection = CollectAssemblyRecords(projectRoot, filterConfig);
+                var records = collection.IncludedRecords;
+                var rewritten = 0;
+                for (var i = 0; i < records.Count; i++)
+                {
+                    var record = records[i];
+                    string previousHash;
+                    var unchanged = previousHashes.TryGetValue(record.AssemblyId, out previousHash)
+                                    && string.Equals(previousHash, record.AssemblyHash, StringComparison.OrdinalIgnoreCase)
+                                    && File.Exists(Path.Combine(snapshotDirectory, record.SnapshotFile))
+                                    && File.Exists(Path.Combine(snapshotDirectory, record.NameIndexFile))
+                                    && File.Exists(Path.Combine(snapshotDirectory, record.TokenIndexFile));
+                    if (unchanged)
+                    {
+                        continue;
+                    }
+
+                    WriteAssemblySnapshot(Path.Combine(snapshotDirectory, record.SnapshotFile), record);
+                    WriteTokenIndex(Path.Combine(snapshotDirectory, record.NameIndexFile), record, namesOnly: true);
+                    WriteTokenIndex(Path.Combine(snapshotDirectory, record.TokenIndexFile), record, namesOnly: false);
+                    rewritten++;
+                }
+
+                var manifest = new SnapshotManifest
+                {
+                    SchemaVersion = SchemaVersion,
+                    ProjectRootHash = ComputeHashText(projectRoot.Replace('\\', '/').ToLowerInvariant()),
+                    UnityVersion = Application.unityVersion,
+                    BuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString(),
+                    CreatedAtTicks = DateTime.UtcNow.Ticks,
+                    GenerationId = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
+                    IncludePackageCacheSourceAssemblies = filterConfig.IncludePackageCacheSourceAssemblies,
+                    IgnoredAssemblyPatterns = filterConfig.IgnoredAssemblyPatterns,
+                    IgnoredSourcePathPatterns = filterConfig.IgnoredSourcePathPatterns,
+                    FilterHash = filterConfig.FilterHash,
+                    ExcludedAssemblyCount = collection.ExcludedRecords.Count,
+                    ExcludedSourceFileCount = CountSources(collection.ExcludedRecords),
+                    Assemblies = records,
+                    ExcludedAssemblies = collection.ExcludedRecords
+                };
+
+                WriteManifestBinary(Path.Combine(snapshotDirectory, ManifestBinFileName), manifest);
+                WriteManifestJson(Path.Combine(snapshotDirectory, ManifestJsonFileName), manifest);
+                stopwatch.Stop();
+                message = "snapshot generated: assemblies=" + records.Count
+                          + ", excludedAssemblies=" + collection.ExcludedRecords.Count
+                          + ", sources=" + CountSources(records)
+                          + ", excludedSources=" + CountSources(collection.ExcludedRecords)
+                          + ", rewritten=" + rewritten
+                          + ", elapsedMs=" + stopwatch.ElapsedMilliseconds;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = GetExceptionMessage(ex);
+                return false;
+            }
+        }
+
+        private static SnapshotCollection CollectAssemblyRecords(string projectRoot, SnapshotFilterConfig filterConfig)
+        {
+            var unityAssemblies = CompilationPipeline.GetAssemblies();
+            var allRecords = new List<AssemblyRecord>();
+            var byName = new Dictionary<string, AssemblyRecord>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < unityAssemblies.Length; i++)
+            {
+                var assembly = unityAssemblies[i];
+                var name = ReadString(assembly, "name");
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                var assemblyId = SanitizeAssemblyId(name);
+                var record = new AssemblyRecord
+                {
+                    AssemblyName = name,
+                    AssemblyId = assemblyId,
+                    SnapshotFile = AssembliesDirectoryName + "/" + assemblyId + AssemblySnapshotExtension,
+                    NameIndexFile = IndexDirectoryName + "/" + NamesDirectoryName + "/" + assemblyId + IndexExtension,
+                    TokenIndexFile = IndexDirectoryName + "/" + TokensDirectoryName + "/" + assemblyId + IndexExtension,
+                    OutputPath = NormalizePath(projectRoot, ReadString(assembly, "outputPath")),
+                    AsmdefPath = NormalizePath(projectRoot, ReadFirstString(assembly, new[] { "definitionFilePath", "asmdefPath" })),
+                    LanguageVersion = DetermineLanguageVersion(assembly),
+                    AllowUnsafe = DetermineAllowUnsafe(assembly)
+                };
+
+                record.Defines.AddRange(Sort(ReadStringArray(assembly, "defines")));
+                record.ProjectReferenceAssemblyNames.AddRange(Sort(ReadAssemblyReferenceNames(assembly)));
+                AddFileStates(projectRoot, ReadStringArray(assembly, "sourceFiles"), record.Sources);
+                AddFileStates(projectRoot, ReadStringArray(assembly, "compiledAssemblyReferences"), record.References);
+                record.CompilerOptions.AddRange(ReadCompilerOptions(assembly));
+
+                allRecords.Add(record);
+                byName[record.AssemblyName] = record;
+            }
+
+            var collection = new SnapshotCollection();
+            var excludedAssemblyIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < allRecords.Count; i++)
+            {
+                var record = allRecords[i];
+                string excludeReason;
+                if (TryGetExcludeReason(record, filterConfig, out excludeReason))
+                {
+                    record.ExcludeReason = excludeReason;
+                    excludedAssemblyIds.Add(record.AssemblyId);
+                    collection.ExcludedRecords.Add(record);
+                    continue;
+                }
+
+                collection.IncludedRecords.Add(record);
+            }
+
+            for (var i = 0; i < collection.IncludedRecords.Count; i++)
+            {
+                var record = collection.IncludedRecords[i];
+                for (var j = 0; j < record.ProjectReferenceAssemblyNames.Count; j++)
+                {
+                    AssemblyRecord dependency;
+                    if (!byName.TryGetValue(record.ProjectReferenceAssemblyNames[j], out dependency))
+                    {
+                        continue;
+                    }
+
+                    if (excludedAssemblyIds.Contains(dependency.AssemblyId))
+                    {
+                        // 被过滤的源码程序集仍以编译输出 DLL 的形式参与语义解析，避免工程源码缺少类型定义。
+                        AddFileStates(projectRoot, new[] { dependency.OutputPath }, record.References);
+                        continue;
+                    }
+
+                    record.DependencyAssemblyIds.Add(dependency.AssemblyId);
+                    dependency.ReverseDependencyAssemblyIds.Add(record.AssemblyId);
+                }
+            }
+
+            for (var i = 0; i < allRecords.Count; i++)
+            {
+                var record = allRecords[i];
+                record.DependencyAssemblyIds = Sort(record.DependencyAssemblyIds);
+                record.ReverseDependencyAssemblyIds = Sort(record.ReverseDependencyAssemblyIds);
+                record.DefinesHash = ComputeHash(record.Defines);
+                record.SourcesHash = ComputeHash(record.Sources);
+                record.ReferencesHash = ComputeHash(record.References);
+                record.CompilerOptionsHash = ComputeHash(record.CompilerOptions);
+                record.AssemblyHash = ComputeAssemblyHash(record);
+                record.LastWriteTimeTicks = ComputeLastWriteTime(record);
+            }
+
+            collection.IncludedRecords.Sort((left, right) => string.Compare(left.AssemblyName, right.AssemblyName, StringComparison.OrdinalIgnoreCase));
+            collection.ExcludedRecords.Sort((left, right) => string.Compare(left.AssemblyName, right.AssemblyName, StringComparison.OrdinalIgnoreCase));
+            return collection;
+        }
+
+        private static SnapshotFilterConfig CreateFilterConfig(AIBridgeProjectSettings.CodeIndexSettingsData settings)
+        {
+            var config = new SnapshotFilterConfig
+            {
+                IncludePackageCacheSourceAssemblies = settings == null
+                    ? AIBridgeProjectSettings.DefaultCodeIndexIncludePackageCacheSourceAssemblies
+                    : settings.IncludePackageCacheSourceAssemblies
+            };
+            config.IgnoredAssemblyPatterns.AddRange(SplitFilterPatterns(settings == null ? null : settings.IgnoredAssemblyPatterns));
+            config.IgnoredSourcePathPatterns.AddRange(SplitFilterPatterns(settings == null ? null : settings.IgnoredSourcePathPatterns));
+
+            var parts = new List<string>();
+            parts.Add(config.IncludePackageCacheSourceAssemblies ? "include-package-cache" : "exclude-package-cache");
+            parts.AddRange(config.IgnoredAssemblyPatterns);
+            parts.AddRange(config.IgnoredSourcePathPatterns);
+            config.FilterHash = ComputeHash(parts);
+            return config;
+        }
+
+        private static List<string> SplitFilterPatterns(string value)
+        {
+            var result = new List<string>();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return result;
+            }
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var parts = value.Split(new[] { '\r', '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+            for (var i = 0; i < parts.Length; i++)
+            {
+                var pattern = NormalizePatternText(parts[i]);
+                if (!string.IsNullOrWhiteSpace(pattern) && seen.Add(pattern))
+                {
+                    result.Add(pattern);
+                }
+            }
+
+            result.Sort(StringComparer.OrdinalIgnoreCase);
+            return result;
+        }
+
+        private static bool TryGetExcludeReason(AssemblyRecord record, SnapshotFilterConfig filterConfig, out string reason)
+        {
+            reason = null;
+            if (record == null || filterConfig == null)
+            {
+                return false;
+            }
+
+            string matchedPattern;
+            if (TryMatchPattern(record.AssemblyName, filterConfig.IgnoredAssemblyPatterns, out matchedPattern)
+                || TryMatchPattern(record.AssemblyId, filterConfig.IgnoredAssemblyPatterns, out matchedPattern))
+            {
+                reason = "ignoredAssemblyPattern:" + matchedPattern;
+                return true;
+            }
+
+            if (!filterConfig.IncludePackageCacheSourceAssemblies && IsPackageCacheAssembly(record))
+            {
+                reason = "packageCache";
+                return true;
+            }
+
+            if (TryMatchPattern(record.AsmdefPath, filterConfig.IgnoredSourcePathPatterns, out matchedPattern))
+            {
+                reason = "ignoredSourcePathPattern:" + matchedPattern;
+                return true;
+            }
+
+            for (var i = 0; i < record.Sources.Count; i++)
+            {
+                if (TryMatchPattern(record.Sources[i].Path, filterConfig.IgnoredSourcePathPatterns, out matchedPattern))
+                {
+                    reason = "ignoredSourcePathPattern:" + matchedPattern;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsPackageCacheAssembly(AssemblyRecord record)
+        {
+            if (record == null)
+            {
+                return false;
+            }
+
+            if (IsPackageCachePath(record.AsmdefPath))
+            {
+                return true;
+            }
+
+            for (var i = 0; i < record.Sources.Count; i++)
+            {
+                if (IsPackageCachePath(record.Sources[i].Path))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsPackageCachePath(string path)
+        {
+            var normalized = NormalizePatternText(path);
+            return normalized.StartsWith("Library/PackageCache/", StringComparison.OrdinalIgnoreCase)
+                   || normalized.IndexOf("/Library/PackageCache/", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool TryMatchPattern(string value, List<string> patterns, out string matchedPattern)
+        {
+            matchedPattern = null;
+            if (string.IsNullOrWhiteSpace(value) || patterns == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < patterns.Count; i++)
+            {
+                if (MatchesPattern(value, patterns[i]))
+                {
+                    matchedPattern = patterns[i];
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool MatchesPattern(string value, string pattern)
+        {
+            var normalizedValue = NormalizePatternText(value);
+            var normalizedPattern = NormalizePatternText(pattern);
+            if (string.IsNullOrEmpty(normalizedValue) || string.IsNullOrEmpty(normalizedPattern))
+            {
+                return false;
+            }
+
+            if (normalizedPattern.IndexOf('*') >= 0 || normalizedPattern.IndexOf('?') >= 0)
+            {
+                var regex = "^" + Regex.Escape(normalizedPattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
+                return Regex.IsMatch(normalizedValue, regex, RegexOptions.IgnoreCase);
+            }
+
+            return normalizedValue.IndexOf(normalizedPattern, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static string NormalizePatternText(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().Replace('\\', '/');
+        }
+
+        private static void AddFileStates(string projectRoot, string[] paths, List<FileState> target)
+        {
+            var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; target != null && i < target.Count; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(target[i].Path))
+                {
+                    unique.Add(target[i].Path);
+                }
+            }
+
+            for (var i = 0; i < paths.Length; i++)
+            {
+                var path = paths[i];
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    continue;
+                }
+
+                var fullPath = ResolveSnapshotPath(projectRoot, path);
+                if (string.IsNullOrWhiteSpace(fullPath) || !File.Exists(fullPath))
+                {
+                    continue;
+                }
+
+                var normalized = NormalizePath(projectRoot, fullPath);
+                if (!unique.Add(normalized))
+                {
+                    continue;
+                }
+
+                var info = new FileInfo(fullPath);
+                target.Add(new FileState
+                {
+                    Path = normalized,
+                    Length = info.Length,
+                    LastWriteTimeTicks = info.LastWriteTimeUtc.Ticks,
+                    Hash = ComputeFileHash(fullPath)
+                });
+            }
+
+            target.Sort((left, right) => string.Compare(left.Path, right.Path, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static void WriteManifestBinary(string path, SnapshotManifest manifest)
+        {
+            var tempPath = path + ".tmp";
+            using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8))
+            {
+                WriteHeader(writer, ManifestFormatKind, manifest.CreatedAtTicks);
+                writer.Write(manifest.SchemaVersion);
+                WriteString(writer, manifest.ProjectRootHash);
+                WriteString(writer, manifest.UnityVersion);
+                WriteString(writer, manifest.BuildTarget);
+                WriteString(writer, manifest.GenerationId);
+                writer.Write(manifest.IncludePackageCacheSourceAssemblies);
+                WriteStringList(writer, manifest.IgnoredAssemblyPatterns);
+                WriteStringList(writer, manifest.IgnoredSourcePathPatterns);
+                WriteString(writer, manifest.FilterHash);
+                writer.Write(manifest.ExcludedAssemblyCount);
+                writer.Write(manifest.ExcludedSourceFileCount);
+                writer.Write(manifest.Assemblies.Count);
+                for (var i = 0; i < manifest.Assemblies.Count; i++)
+                {
+                    WriteAssemblyRecord(writer, manifest.Assemblies[i]);
+                }
+            }
+
+            AtomicReplace(tempPath, path);
+        }
+
+        private static void WriteAssemblySnapshot(string path, AssemblyRecord record)
+        {
+            var tempPath = path + ".tmp";
+            using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8))
+            {
+                WriteHeader(writer, AssemblyFormatKind, DateTime.UtcNow.Ticks);
+                WriteAssemblyRecord(writer, record);
+                WriteStringList(writer, record.Defines);
+                WriteFileStates(writer, record.Sources);
+                WriteFileStates(writer, record.References);
+                WriteStringList(writer, record.ProjectReferenceAssemblyNames);
+                WriteStringList(writer, record.CompilerOptions);
+            }
+
+            AtomicReplace(tempPath, path);
+        }
+
+        private static void WriteAssemblyRecord(BinaryWriter writer, AssemblyRecord record)
+        {
+            WriteString(writer, record.AssemblyName);
+            WriteString(writer, record.AssemblyId);
+            WriteString(writer, record.SnapshotFile);
+            WriteString(writer, record.NameIndexFile);
+            WriteString(writer, record.TokenIndexFile);
+            WriteString(writer, record.OutputPath);
+            WriteString(writer, record.AsmdefPath);
+            WriteString(writer, record.LanguageVersion);
+            writer.Write(record.AllowUnsafe);
+            writer.Write(record.Sources.Count);
+            writer.Write(record.References.Count);
+            WriteString(writer, record.DefinesHash);
+            WriteString(writer, record.SourcesHash);
+            WriteString(writer, record.ReferencesHash);
+            WriteString(writer, record.CompilerOptionsHash);
+            WriteString(writer, record.AssemblyHash);
+            writer.Write(record.LastWriteTimeTicks);
+            WriteStringList(writer, record.DependencyAssemblyIds);
+            WriteStringList(writer, record.ReverseDependencyAssemblyIds);
+        }
+
+        private static void WriteTokenIndex(string path, AssemblyRecord record, bool namesOnly)
+        {
+            var entries = BuildTokenEntries(record, namesOnly);
+            var tempPath = path + ".tmp";
+            using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8))
+            {
+                WriteHeader(writer, TextIndexFormatKind, DateTime.UtcNow.Ticks);
+                WriteString(writer, record.AssemblyId);
+                WriteString(writer, record.AssemblyHash);
+                writer.Write(namesOnly);
+                writer.Write(entries.Count);
+                for (var i = 0; i < entries.Count; i++)
+                {
+                    WriteString(writer, entries[i]);
+                }
+            }
+
+            AtomicReplace(tempPath, path);
+        }
+
+        private static List<string> BuildTokenEntries(AssemblyRecord record, bool namesOnly)
+        {
+            var tokens = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < record.Sources.Count; i++)
+            {
+                var fullPath = ResolveSnapshotPath(GetProjectRoot(), record.Sources[i].Path);
+                if (string.IsNullOrWhiteSpace(fullPath) || !File.Exists(fullPath))
+                {
+                    continue;
+                }
+
+                var lineNumber = 0;
+                foreach (var line in File.ReadLines(fullPath))
+                {
+                    lineNumber++;
+                    var matches = TokenRegex.Matches(line);
+                    for (var j = 0; j < matches.Count; j++)
+                    {
+                        var value = matches[j].Value;
+                        if (namesOnly && !LooksLikeDeclarationName(line, value))
+                        {
+                            continue;
+                        }
+
+                        tokens.Add(value + "|" + record.Sources[i].Path + "|" + lineNumber.ToString(CultureInfo.InvariantCulture));
+                    }
+                }
+            }
+
+            return new List<string>(tokens);
+        }
+
+        private static bool LooksLikeDeclarationName(string line, string value)
+        {
+            if (string.IsNullOrEmpty(line) || string.IsNullOrEmpty(value))
+            {
+                return false;
+            }
+
+            var index = line.IndexOf(value, StringComparison.Ordinal);
+            if (index <= 0)
+            {
+                return false;
+            }
+
+            var prefix = line.Substring(0, index);
+            return prefix.IndexOf("class ", StringComparison.Ordinal) >= 0
+                   || prefix.IndexOf("struct ", StringComparison.Ordinal) >= 0
+                   || prefix.IndexOf("interface ", StringComparison.Ordinal) >= 0
+                   || prefix.IndexOf("enum ", StringComparison.Ordinal) >= 0
+                   || prefix.IndexOf("delegate ", StringComparison.Ordinal) >= 0
+                   || prefix.IndexOf("void ", StringComparison.Ordinal) >= 0
+                   || prefix.IndexOf("public ", StringComparison.Ordinal) >= 0
+                   || prefix.IndexOf("private ", StringComparison.Ordinal) >= 0
+                   || prefix.IndexOf("protected ", StringComparison.Ordinal) >= 0
+                   || prefix.IndexOf("internal ", StringComparison.Ordinal) >= 0;
+        }
+
+        private static void WriteManifestJson(string path, SnapshotManifest manifest)
+        {
+            var builder = new StringBuilder();
+            builder.Append("{\n");
+            AppendJsonProperty(builder, "workspaceMode", "unity-snapshot", true);
+            AppendJsonProperty(builder, "schemaVersion", manifest.SchemaVersion, true);
+            AppendJsonProperty(builder, "projectRootHash", manifest.ProjectRootHash, true);
+            AppendJsonProperty(builder, "unityVersion", manifest.UnityVersion, true);
+            AppendJsonProperty(builder, "buildTarget", manifest.BuildTarget, true);
+            AppendJsonProperty(builder, "createdAt", new DateTime(manifest.CreatedAtTicks, DateTimeKind.Utc).ToString("o"), true);
+            AppendJsonProperty(builder, "generationId", manifest.GenerationId, true);
+            AppendJsonProperty(builder, "assemblyCount", manifest.Assemblies.Count, true);
+            AppendJsonProperty(builder, "sourceFileCount", CountSources(manifest.Assemblies), true);
+            AppendJsonProperty(builder, "excludedAssemblyCount", manifest.ExcludedAssemblyCount, true);
+            AppendJsonProperty(builder, "excludedSourceFileCount", manifest.ExcludedSourceFileCount, true);
+            AppendJsonProperty(builder, "includePackageCacheSourceAssemblies", manifest.IncludePackageCacheSourceAssemblies, true);
+            AppendJsonArray(builder, "ignoredAssemblyPatterns", manifest.IgnoredAssemblyPatterns, true, 2);
+            AppendJsonArray(builder, "ignoredSourcePathPatterns", manifest.IgnoredSourcePathPatterns, true, 2);
+            AppendJsonProperty(builder, "filterHash", manifest.FilterHash, true);
+            builder.Append("  \"assemblyRecords\": [\n");
+            for (var i = 0; i < manifest.Assemblies.Count; i++)
+            {
+                var record = manifest.Assemblies[i];
+                builder.Append("    {\n");
+                AppendJsonProperty(builder, "assemblyName", record.AssemblyName, true, 6);
+                AppendJsonProperty(builder, "assemblyId", record.AssemblyId, true, 6);
+                AppendJsonProperty(builder, "snapshotFile", record.SnapshotFile, true, 6);
+                AppendJsonProperty(builder, "nameIndexFile", record.NameIndexFile, true, 6);
+                AppendJsonProperty(builder, "tokenIndexFile", record.TokenIndexFile, true, 6);
+                AppendJsonProperty(builder, "sourceFileCount", record.Sources.Count, true, 6);
+                AppendJsonProperty(builder, "referenceCount", record.References.Count, true, 6);
+                AppendJsonProperty(builder, "definesHash", record.DefinesHash, true, 6);
+                AppendJsonProperty(builder, "sourcesHash", record.SourcesHash, true, 6);
+                AppendJsonProperty(builder, "referencesHash", record.ReferencesHash, true, 6);
+                AppendJsonProperty(builder, "compilerOptionsHash", record.CompilerOptionsHash, true, 6);
+                AppendJsonProperty(builder, "assemblyHash", record.AssemblyHash, true, 6);
+                AppendJsonProperty(builder, "lastWriteTime", record.LastWriteTimeTicks, true, 6);
+                AppendJsonArray(builder, "dependencyAssemblyIds", record.DependencyAssemblyIds, true, 6);
+                AppendJsonArray(builder, "reverseDependencyAssemblyIds", record.ReverseDependencyAssemblyIds, false, 6);
+                builder.Append("    }");
+                if (i + 1 < manifest.Assemblies.Count)
+                {
+                    builder.Append(",");
+                }
+
+                builder.Append("\n");
+            }
+
+            builder.Append("  ],\n");
+            builder.Append("  \"excludedAssemblyRecords\": [\n");
+            for (var i = 0; i < manifest.ExcludedAssemblies.Count; i++)
+            {
+                var record = manifest.ExcludedAssemblies[i];
+                builder.Append("    {\n");
+                AppendJsonProperty(builder, "assemblyName", record.AssemblyName, true, 6);
+                AppendJsonProperty(builder, "assemblyId", record.AssemblyId, true, 6);
+                AppendJsonProperty(builder, "excludeReason", record.ExcludeReason, true, 6);
+                AppendJsonProperty(builder, "sourceFileCount", record.Sources.Count, true, 6);
+                AppendJsonProperty(builder, "outputPath", record.OutputPath, false, 6);
+                builder.Append("    }");
+                if (i + 1 < manifest.ExcludedAssemblies.Count)
+                {
+                    builder.Append(",");
+                }
+
+                builder.Append("\n");
+            }
+
+            builder.Append("  ]\n");
+            builder.Append("}\n");
+            var tempPath = path + ".tmp";
+            File.WriteAllText(tempPath, builder.ToString(), Encoding.UTF8);
+            AtomicReplace(tempPath, path);
+        }
+
+        private static Dictionary<string, string> ReadPreviousAssemblyHashes(string manifestJsonPath)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (!File.Exists(manifestJsonPath))
+            {
+                return result;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(manifestJsonPath, Encoding.UTF8);
+                var matches = Regex.Matches(
+                    json,
+                    "\"assemblyId\"\\s*:\\s*\"(?<id>(?:\\\\.|[^\"])*)\"(?:(?!\"assemblyId\").)*\"assemblyHash\"\\s*:\\s*\"(?<hash>(?:\\\\.|[^\"])*)\"",
+                    RegexOptions.Singleline);
+                for (var i = 0; i < matches.Count; i++)
+                {
+                    var id = Regex.Unescape(matches[i].Groups["id"].Value);
+                    var hash = Regex.Unescape(matches[i].Groups["hash"].Value);
+                    if (!string.IsNullOrWhiteSpace(id) && !string.IsNullOrWhiteSpace(hash))
+                    {
+                        result[id] = hash;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return result;
+        }
+
+        private static string[] ReadStringArray(object instance, string name)
+        {
+            var value = ReadMemberValue(instance, name);
+            if (value == null)
+            {
+                return new string[0];
+            }
+
+            var array = value as string[];
+            if (array != null)
+            {
+                return array;
+            }
+
+            var enumerable = value as System.Collections.IEnumerable;
+            if (enumerable == null || value is string)
+            {
+                return new string[0];
+            }
+
+            var result = new List<string>();
+            foreach (var item in enumerable)
+            {
+                if (item != null)
+                {
+                    result.Add(Convert.ToString(item));
+                }
+            }
+
+            return result.ToArray();
+        }
+
+        private static List<string> ReadAssemblyReferenceNames(object assembly)
+        {
+            var result = new List<string>();
+            var references = ReadMemberValue(assembly, "assemblyReferences") as System.Collections.IEnumerable;
+            if (references == null)
+            {
+                return result;
+            }
+
+            foreach (var reference in references)
+            {
+                var name = ReadString(reference, "name");
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    result.Add(name);
+                }
+            }
+
+            return result;
+        }
+
+        private static List<string> ReadCompilerOptions(object assembly)
+        {
+            var result = new List<string>();
+            var compilerOptions = ReadMemberValue(assembly, "compilerOptions");
+            if (compilerOptions == null)
+            {
+                return result;
+            }
+
+            var type = compilerOptions.GetType();
+            var properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
+            for (var i = 0; i < properties.Length; i++)
+            {
+                if (!properties[i].CanRead)
+                {
+                    continue;
+                }
+
+                object value;
+                if (TryGetReflectedValue(properties[i].Name, () => properties[i].GetValue(compilerOptions, null), out value))
+                {
+                    TryAddCompilerOption(result, properties[i].Name, value);
+                }
+            }
+
+            var fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public);
+            for (var i = 0; i < fields.Length; i++)
+            {
+                object value;
+                if (TryGetReflectedValue(fields[i].Name, () => fields[i].GetValue(compilerOptions), out value))
+                {
+                    TryAddCompilerOption(result, fields[i].Name, value);
+                }
+            }
+
+            result.Sort(StringComparer.OrdinalIgnoreCase);
+            return result;
+        }
+
+        private static bool TryGetReflectedValue(string name, Func<object> getter, out object value)
+        {
+            value = null;
+            try
+            {
+                value = getter();
+                return true;
+            }
+            catch
+            {
+                // Unity 各版本的 CompilationPipeline 反射属性不完全稳定，单个属性失败不能中断整个快照。
+                return false;
+            }
+        }
+
+        private static void TryAddCompilerOption(List<string> result, string name, object value)
+        {
+            if (string.IsNullOrWhiteSpace(name) || value == null)
+            {
+                return;
+            }
+
+            var enumerable = value as System.Collections.IEnumerable;
+            if (enumerable != null && !(value is string))
+            {
+                foreach (var item in enumerable)
+                {
+                    if (item != null)
+                    {
+                        result.Add(name + "=" + Convert.ToString(item));
+                    }
+                }
+
+                return;
+            }
+
+            result.Add(name + "=" + Convert.ToString(value));
+        }
+
+        private static string DetermineLanguageVersion(object assembly)
+        {
+            var compilerOptions = ReadMemberValue(assembly, "compilerOptions");
+            var value = ReadFirstString(compilerOptions, new[] { "languageVersion", "LanguageVersion" });
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            var unityVersion = Application.unityVersion;
+            var dot = unityVersion.IndexOf('.');
+            var majorText = dot < 0 ? unityVersion : unityVersion.Substring(0, dot);
+            int major;
+            if (int.TryParse(majorText, out major) && major <= 2019)
+            {
+                return "7.3";
+            }
+
+            return "9.0";
+        }
+
+        private static bool DetermineAllowUnsafe(object assembly)
+        {
+            var flags = ReadMemberValue(assembly, "flags");
+            if (flags != null && flags.ToString().IndexOf("Unsafe", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            var compilerOptions = ReadMemberValue(assembly, "compilerOptions");
+            var unsafeValue = ReadMemberValue(compilerOptions, "allowUnsafeCode") ?? ReadMemberValue(compilerOptions, "AllowUnsafeCode");
+            return unsafeValue is bool && (bool)unsafeValue;
+        }
+
+        private static object ReadMemberValue(object instance, string name)
+        {
+            if (instance == null || string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            var type = instance.GetType();
+            var property = type.GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (property != null && property.CanRead)
+            {
+                try
+                {
+                    return property.GetValue(instance, null);
+                }
+                catch
+                {
+                }
+            }
+
+            var field = type.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (field != null)
+            {
+                try
+                {
+                    return field.GetValue(instance);
+                }
+                catch
+                {
+                }
+            }
+
+            return null;
+        }
+
+        private static string ReadString(object instance, string name)
+        {
+            var value = ReadMemberValue(instance, name);
+            return value == null ? null : Convert.ToString(value);
+        }
+
+        private static string ReadFirstString(object instance, string[] names)
+        {
+            if (instance == null || names == null)
+            {
+                return null;
+            }
+
+            for (var i = 0; i < names.Length; i++)
+            {
+                var value = ReadString(instance, names[i]);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+
+            return null;
+        }
+
+        private static string NormalizePath(string projectRoot, string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            var fullPath = Path.GetFullPath(path).Replace('\\', '/');
+            var root = Path.GetFullPath(projectRoot).Replace('\\', '/').TrimEnd('/') + "/";
+            if (fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            {
+                return fullPath.Substring(root.Length);
+            }
+
+            return fullPath;
+        }
+
+        private static string ResolveSnapshotPath(string projectRoot, string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            return Path.IsPathRooted(path)
+                ? Path.GetFullPath(path)
+                : Path.GetFullPath(Path.Combine(projectRoot, path));
+        }
+
+        private static string GetProjectRoot()
+        {
+            return Path.GetDirectoryName(Application.dataPath);
+        }
+
+        private static string SanitizeAssemblyId(string name)
+        {
+            var builder = new StringBuilder();
+            for (var i = 0; i < name.Length; i++)
+            {
+                var c = name[i];
+                builder.Append(char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-' ? c : '_');
+            }
+
+            return builder.Length == 0 ? "Assembly" : builder.ToString();
+        }
+
+        private static List<string> Sort(IEnumerable<string> values)
+        {
+            var result = new List<string>();
+            if (values != null)
+            {
+                foreach (var value in values)
+                {
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        result.Add(value);
+                    }
+                }
+            }
+
+            result.Sort(StringComparer.OrdinalIgnoreCase);
+            return result;
+        }
+
+        private static string ComputeAssemblyHash(AssemblyRecord record)
+        {
+            var parts = new List<string>();
+            parts.Add(record.AssemblyName);
+            parts.Add(record.OutputPath);
+            parts.Add(record.AsmdefPath);
+            parts.Add(record.LanguageVersion);
+            parts.Add(record.AllowUnsafe ? "unsafe" : "safe");
+            parts.Add(Application.unityVersion);
+            parts.Add(EditorUserBuildSettings.activeBuildTarget.ToString());
+            parts.Add(record.DefinesHash);
+            parts.Add(record.SourcesHash);
+            parts.Add(record.ReferencesHash);
+            parts.Add(record.CompilerOptionsHash);
+            parts.Add(ComputeHash(record.ProjectReferenceAssemblyNames));
+            parts.Add(ComputeHash(record.DependencyAssemblyIds));
+            var asmdefFullPath = ResolveSnapshotPath(GetProjectRoot(), record.AsmdefPath);
+            if (!string.IsNullOrWhiteSpace(asmdefFullPath) && File.Exists(asmdefFullPath))
+            {
+                parts.Add(ComputeFileHash(asmdefFullPath));
+            }
+
+            return ComputeHash(parts);
+        }
+
+        private static string ComputeHash(IEnumerable<FileState> files)
+        {
+            var parts = new List<string>();
+            if (files != null)
+            {
+                foreach (var file in files)
+                {
+                    parts.Add(file.Path + "|" + file.Length + "|" + file.LastWriteTimeTicks + "|" + file.Hash);
+                }
+            }
+
+            return ComputeHash(parts);
+        }
+
+        private static string ComputeHash(IEnumerable<string> values)
+        {
+            var builder = new StringBuilder();
+            if (values != null)
+            {
+                foreach (var value in values)
+                {
+                    builder.Append(value ?? string.Empty).Append('\n');
+                }
+            }
+
+            return ComputeHashText(builder.ToString());
+        }
+
+        private static string ComputeHashText(string text)
+        {
+            using (var sha = SHA256.Create())
+            {
+                var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(text ?? string.Empty));
+                return ToHex(bytes);
+            }
+        }
+
+        private static string ComputeFileHash(string path)
+        {
+            try
+            {
+                using (var sha = SHA256.Create())
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    return ToHex(sha.ComputeHash(stream));
+                }
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static long ComputeLastWriteTime(AssemblyRecord record)
+        {
+            var value = 0L;
+            for (var i = 0; i < record.Sources.Count; i++)
+            {
+                value = Math.Max(value, record.Sources[i].LastWriteTimeTicks);
+            }
+
+            for (var i = 0; i < record.References.Count; i++)
+            {
+                value = Math.Max(value, record.References[i].LastWriteTimeTicks);
+            }
+
+            return value;
+        }
+
+        private static string ToHex(byte[] bytes)
+        {
+            var builder = new StringBuilder(bytes.Length * 2);
+            for (var i = 0; i < bytes.Length; i++)
+            {
+                builder.Append(bytes[i].ToString("x2", CultureInfo.InvariantCulture));
+            }
+
+            return builder.ToString();
+        }
+
+        private static int CountSources(List<AssemblyRecord> records)
+        {
+            var count = 0;
+            for (var i = 0; i < records.Count; i++)
+            {
+                count += records[i].Sources.Count;
+            }
+
+            return count;
+        }
+
+        private static void WriteHeader(BinaryWriter writer, int formatKind, long createdAtTicks)
+        {
+            writer.Write(Encoding.ASCII.GetBytes(Magic));
+            writer.Write(SchemaVersion);
+            writer.Write(formatKind);
+            writer.Write(createdAtTicks);
+        }
+
+        private static void WriteStringList(BinaryWriter writer, List<string> values)
+        {
+            writer.Write(values == null ? 0 : values.Count);
+            if (values == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < values.Count; i++)
+            {
+                WriteString(writer, values[i]);
+            }
+        }
+
+        private static void WriteFileStates(BinaryWriter writer, List<FileState> values)
+        {
+            writer.Write(values == null ? 0 : values.Count);
+            if (values == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < values.Count; i++)
+            {
+                WriteString(writer, values[i].Path);
+                writer.Write(values[i].Length);
+                writer.Write(values[i].LastWriteTimeTicks);
+                WriteString(writer, values[i].Hash);
+            }
+        }
+
+        private static void WriteString(BinaryWriter writer, string value)
+        {
+            if (value == null)
+            {
+                writer.Write(-1);
+                return;
+            }
+
+            var bytes = Encoding.UTF8.GetBytes(value);
+            writer.Write(bytes.Length);
+            writer.Write(bytes);
+        }
+
+        private static void AtomicReplace(string tempPath, string finalPath)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(finalPath));
+            try
+            {
+                if (File.Exists(finalPath))
+                {
+                    File.Replace(tempPath, finalPath, null);
+                }
+                else
+                {
+                    File.Move(tempPath, finalPath);
+                }
+            }
+            catch
+            {
+                if (File.Exists(finalPath))
+                {
+                    File.Delete(finalPath);
+                }
+
+                File.Move(tempPath, finalPath);
+            }
+        }
+
+        private static void AppendJsonProperty(StringBuilder builder, string name, string value, bool comma, int indent = 2)
+        {
+            builder.Append(new string(' ', indent));
+            builder.Append("\"").Append(EscapeJson(name)).Append("\": ");
+            if (value == null)
+            {
+                builder.Append("null");
+            }
+            else
+            {
+                builder.Append("\"").Append(EscapeJson(value)).Append("\"");
+            }
+
+            builder.Append(comma ? ",\n" : "\n");
+        }
+
+        private static void AppendJsonProperty(StringBuilder builder, string name, int value, bool comma, int indent = 2)
+        {
+            builder.Append(new string(' ', indent));
+            builder.Append("\"").Append(EscapeJson(name)).Append("\": ").Append(value.ToString(CultureInfo.InvariantCulture));
+            builder.Append(comma ? ",\n" : "\n");
+        }
+
+        private static void AppendJsonProperty(StringBuilder builder, string name, bool value, bool comma, int indent = 2)
+        {
+            builder.Append(new string(' ', indent));
+            builder.Append("\"").Append(EscapeJson(name)).Append("\": ").Append(value ? "true" : "false");
+            builder.Append(comma ? ",\n" : "\n");
+        }
+
+        private static void AppendJsonProperty(StringBuilder builder, string name, long value, bool comma, int indent = 2)
+        {
+            builder.Append(new string(' ', indent));
+            builder.Append("\"").Append(EscapeJson(name)).Append("\": ").Append(value.ToString(CultureInfo.InvariantCulture));
+            builder.Append(comma ? ",\n" : "\n");
+        }
+
+        private static void AppendJsonArray(StringBuilder builder, string name, List<string> values, bool comma, int indent)
+        {
+            builder.Append(new string(' ', indent));
+            builder.Append("\"").Append(EscapeJson(name)).Append("\": [");
+            for (var i = 0; values != null && i < values.Count; i++)
+            {
+                if (i > 0)
+                {
+                    builder.Append(", ");
+                }
+
+                builder.Append("\"").Append(EscapeJson(values[i])).Append("\"");
+            }
+
+            builder.Append("]");
+            builder.Append(comma ? ",\n" : "\n");
+        }
+
+        private static string EscapeJson(string value)
+        {
+            return (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"");
+        }
+
+        private static string GetExceptionMessage(Exception ex)
+        {
+            if (ex == null)
+            {
+                return string.Empty;
+            }
+
+            var inner = ex.InnerException;
+            return inner == null ? ex.Message : inner.Message + " (" + ex.GetType().Name + ")";
+        }
+
+        private sealed class SnapshotManifest
+        {
+            public int SchemaVersion;
+            public string ProjectRootHash;
+            public string UnityVersion;
+            public string BuildTarget;
+            public long CreatedAtTicks;
+            public string GenerationId;
+            public bool IncludePackageCacheSourceAssemblies;
+            public List<string> IgnoredAssemblyPatterns = new List<string>();
+            public List<string> IgnoredSourcePathPatterns = new List<string>();
+            public string FilterHash;
+            public int ExcludedAssemblyCount;
+            public int ExcludedSourceFileCount;
+            public List<AssemblyRecord> Assemblies = new List<AssemblyRecord>();
+            public List<AssemblyRecord> ExcludedAssemblies = new List<AssemblyRecord>();
+        }
+
+        private sealed class SnapshotCollection
+        {
+            public List<AssemblyRecord> IncludedRecords = new List<AssemblyRecord>();
+            public List<AssemblyRecord> ExcludedRecords = new List<AssemblyRecord>();
+        }
+
+        private sealed class SnapshotFilterConfig
+        {
+            public bool IncludePackageCacheSourceAssemblies;
+            public List<string> IgnoredAssemblyPatterns = new List<string>();
+            public List<string> IgnoredSourcePathPatterns = new List<string>();
+            public string FilterHash;
+        }
+
+        private sealed class AssemblyRecord
+        {
+            public string AssemblyName;
+            public string AssemblyId;
+            public string SnapshotFile;
+            public string NameIndexFile;
+            public string TokenIndexFile;
+            public string OutputPath;
+            public string AsmdefPath;
+            public string LanguageVersion;
+            public bool AllowUnsafe;
+            public List<string> Defines = new List<string>();
+            public List<FileState> Sources = new List<FileState>();
+            public List<FileState> References = new List<FileState>();
+            public List<string> ProjectReferenceAssemblyNames = new List<string>();
+            public List<string> CompilerOptions = new List<string>();
+            public List<string> DependencyAssemblyIds = new List<string>();
+            public List<string> ReverseDependencyAssemblyIds = new List<string>();
+            public string DefinesHash;
+            public string SourcesHash;
+            public string ReferencesHash;
+            public string CompilerOptionsHash;
+            public string AssemblyHash;
+            public long LastWriteTimeTicks;
+            public string ExcludeReason;
+        }
+
+        private sealed class FileState
+        {
+            public string Path;
+            public long Length;
+            public long LastWriteTimeTicks;
+            public string Hash;
+        }
+    }
+}

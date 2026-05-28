@@ -47,6 +47,11 @@ namespace AIBridge.Editor
             return Path.Combine(GetIndexDirectory(), StatusFileName);
         }
 
+        public static string GetSnapshotDirectory()
+        {
+            return AIBridgeCodeIndexSnapshotUtility.GetSnapshotDirectory();
+        }
+
         public static string ResolveCliPath()
         {
             var projectRoot = GetProjectRoot();
@@ -85,6 +90,15 @@ namespace AIBridge.Editor
             }
 
             WriteCodeIndexConfig();
+            if (!AIBridgeCodeIndexSnapshotUtility.GenerateSnapshot(out var snapshotMessage))
+            {
+                if (manual)
+                {
+                    AIBridgeLogger.LogWarning("[CodeIndex] Failed to generate Unity compilation snapshot: " + snapshotMessage);
+                }
+
+                return false;
+            }
 
             var cliPath = ResolveCliPath();
             if (string.IsNullOrEmpty(cliPath))
@@ -127,13 +141,17 @@ namespace AIBridge.Editor
                 var directory = GetIndexDirectory();
                 Directory.CreateDirectory(directory);
                 var json = "{\n"
+                           + "  \"workspaceMode\": \"unity-snapshot\",\n"
                            + "  \"enableCodeIndex\": " + ToJsonBool(settings.EnableCodeIndex) + ",\n"
                            + "  \"prewarmOnUnityStartup\": " + ToJsonBool(settings.PrewarmOnUnityStartup) + ",\n"
                            + "  \"warmupDelaySeconds\": " + Mathf.Max(0, settings.WarmupDelaySeconds) + ",\n"
                            + "  \"warmupMode\": \"" + EscapeJson(settings.WarmupMode) + "\",\n"
                            + "  \"autoRefreshOnFileChange\": " + ToJsonBool(settings.AutoRefreshOnFileChange) + ",\n"
                            + "  \"fallbackToTextSearch\": " + ToJsonBool(settings.FallbackToTextSearch) + ",\n"
-                           + "  \"cleanupModeOnQuit\": \"" + EscapeJson(settings.CleanupModeOnQuit) + "\"\n"
+                           + "  \"cleanupModeOnQuit\": \"" + EscapeJson(settings.CleanupModeOnQuit) + "\",\n"
+                           + "  \"includePackageCacheSourceAssemblies\": " + ToJsonBool(settings.IncludePackageCacheSourceAssemblies) + ",\n"
+                           + "  \"ignoredAssemblyPatterns\": " + ToJsonStringArray(SplitCodeIndexPatterns(settings.IgnoredAssemblyPatterns)) + ",\n"
+                           + "  \"ignoredSourcePathPatterns\": " + ToJsonStringArray(SplitCodeIndexPatterns(settings.IgnoredSourcePathPatterns)) + "\n"
                            + "}\n";
                 File.WriteAllText(Path.Combine(directory, ConfigFileName), json, Encoding.UTF8);
             }
@@ -467,6 +485,40 @@ namespace AIBridge.Editor
         private static string ToCliBool(bool value)
         {
             return value ? "true" : "false";
+        }
+
+        private static string[] SplitCodeIndexPatterns(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return new string[0];
+            }
+
+            return value.Split(new[] { '\r', '\n', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        private static string ToJsonStringArray(string[] values)
+        {
+            var builder = new StringBuilder();
+            builder.Append("[");
+            for (var i = 0; values != null && i < values.Length; i++)
+            {
+                var value = values[i] == null ? string.Empty : values[i].Trim();
+                if (string.IsNullOrEmpty(value))
+                {
+                    continue;
+                }
+
+                if (builder.Length > 1)
+                {
+                    builder.Append(", ");
+                }
+
+                builder.Append("\"").Append(EscapeJson(value)).Append("\"");
+            }
+
+            builder.Append("]");
+            return builder.ToString();
         }
 
         private static string EscapeJson(string value)

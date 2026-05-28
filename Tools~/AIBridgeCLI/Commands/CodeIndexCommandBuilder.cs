@@ -5,7 +5,7 @@ namespace AIBridgeCLI.Commands
     public class CodeIndexCommandBuilder : BaseCommandBuilder
     {
         public override string Type => "code_index";
-        public override string Description => "Read-only Roslyn code semantic index";
+        public override string Description => "Read-only Unity snapshot code semantic index";
 
         public override string[] Actions => new[]
         {
@@ -27,7 +27,7 @@ namespace AIBridgeCLI.Commands
             ["status"] = CommonParameters(),
             ["doctor"] = CommonParameters(),
             ["warmup"] = CommonParameters(),
-            ["reset"] = CommonParameters(),
+            ["reset"] = WithResetParameters(),
             ["symbol"] = WithCommon(new List<ParameterInfo>
             {
                 new ParameterInfo("query", "Symbol name or partial name", true),
@@ -50,10 +50,16 @@ namespace AIBridgeCLI.Commands
             return new List<ParameterInfo>
             {
                 new ParameterInfo("project-root", "Unity project root. Defaults to current Unity project", false),
-                new ParameterInfo("solution", "Explicit .sln path. Defaults to project root .sln", false),
                 new ParameterInfo("unity-pid", "Unity Editor process id to monitor. Daemon exits when the process is gone", false),
-                new ParameterInfo("auto-refresh", "Reload the Roslyn workspace automatically when source/project files change", false, "true")
+                new ParameterInfo("auto-refresh", "Reload the snapshot workspace automatically when snapshot files change", false, "true")
             };
+        }
+
+        private static List<ParameterInfo> WithResetParameters()
+        {
+            var parameters = CommonParameters();
+            parameters.Add(new ParameterInfo("include-snapshot", "Delete the Unity compilation snapshot in addition to daemon state", false, "false"));
+            return parameters;
         }
 
         private static List<ParameterInfo> WithLocation()

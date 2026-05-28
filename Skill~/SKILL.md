@@ -46,7 +46,7 @@ Most Unity-side commands require an `action` such as `asset search` or `inspecto
 - `focus` is Windows CLI-only. `dialog` is CLI-only, uses Windows window APIs or macOS Accessibility permission, and omits dialog fields when no modal dialog is detected. `screenshot game` and `screenshot gif` require Play Mode; `screenshot scene_view` works in Edit mode when a Scene view is open.
 - `input` requires Play Mode and an active EventSystem; use it with `gameview`, `screenshot`, and `get_logs` for UI interaction checks.
 - `runtime` is CLI-only and talks to `AIBridgeRuntime` inside a Player or Play Mode target. Use `runtime list_targets` first, then target `latest` or a specific target id.
-- `code_index` is CLI-only and read-only. It starts a project-local Roslyn daemon for symbols, definitions, references, implementations, callers, and diagnostics. If semantic indexing is unavailable, trust only results marked `semantic=true`; fallback results are explicitly marked `semantic=false`.
+- `code_index` is CLI-only and read-only. It starts a project-local daemon that reads Unity compilation snapshots for symbols, definitions, references, implementations, callers, and diagnostics. If semantic indexing is unavailable, trust only results marked `semantic=true`; fallback results are explicitly marked `semantic=false`.
 
 ## Related Resources
 
@@ -135,7 +135,7 @@ $CLI code_index callers --file Assets/Scripts/Foo.cs --line 42 --column 17
 $CLI code_index diagnostics --file Assets/Scripts/Foo.cs
 ```
 
-Results include `semantic`, `source`, `state`, `stale`, `projectRoot`, and `solution`. Treat `semantic=false` as fallback text candidates only. Unity can prewarm Code Index from `AIBridge/Settings > Code Index`; if `status.stale=true`, the next semantic query refreshes before returning when auto refresh is enabled.
+Results include `semantic`, `source`, `state`, `stale`, `workspaceMode`, snapshot metadata, excluded snapshot counts, `projectRoot`, and `solution`. Treat `semantic=false` as fallback text candidates only. Unity can generate/prewarm the snapshot from `AIBridge/Settings > Code Index`, where PackageCache source indexing and ignored assembly/source-path patterns can also be configured; if `status.stale=true`, the next semantic query refreshes from the latest snapshot when auto refresh is enabled.
 
 ---
 

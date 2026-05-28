@@ -13,6 +13,18 @@ namespace AIBridgeCodeIndex
         public string state { get; set; }
         public bool stale { get; set; }
         public string solution { get; set; }
+        public string workspaceMode { get; set; }
+        public bool snapshotExists { get; set; }
+        public int snapshotVersion { get; set; }
+        public string generationId { get; set; }
+        public int assemblyCount { get; set; }
+        public int sourceFileCount { get; set; }
+        public int excludedAssemblyCount { get; set; }
+        public int excludedSourceFileCount { get; set; }
+        public bool includePackageCacheSourceAssemblies { get; set; }
+        public string buildTarget { get; set; }
+        public string unityVersion { get; set; }
+        public string staleReason { get; set; }
         public int loadedProjects { get; set; }
         public int loadedDocuments { get; set; }
         public string startedAt { get; set; }
@@ -35,6 +47,18 @@ namespace AIBridgeCodeIndex
         public bool stale { get; set; }
         public string projectRoot { get; set; }
         public string solution { get; set; }
+        public string workspaceMode { get; set; }
+        public bool snapshotExists { get; set; }
+        public int snapshotVersion { get; set; }
+        public string generationId { get; set; }
+        public int assemblyCount { get; set; }
+        public int sourceFileCount { get; set; }
+        public int excludedAssemblyCount { get; set; }
+        public int excludedSourceFileCount { get; set; }
+        public bool includePackageCacheSourceAssemblies { get; set; }
+        public string buildTarget { get; set; }
+        public string unityVersion { get; set; }
+        public string staleReason { get; set; }
         public int loadedProjects { get; set; }
         public int loadedDocuments { get; set; }
         public string warning { get; set; }
@@ -52,6 +76,18 @@ namespace AIBridgeCodeIndex
                 stale = status == null || status.stale,
                 projectRoot = status == null ? null : status.projectRoot,
                 solution = status == null ? null : status.solution,
+                workspaceMode = status == null ? "unity-snapshot" : status.workspaceMode,
+                snapshotExists = status != null && status.snapshotExists,
+                snapshotVersion = status == null ? 0 : status.snapshotVersion,
+                generationId = status == null ? null : status.generationId,
+                assemblyCount = status == null ? 0 : status.assemblyCount,
+                sourceFileCount = status == null ? 0 : status.sourceFileCount,
+                excludedAssemblyCount = status == null ? 0 : status.excludedAssemblyCount,
+                excludedSourceFileCount = status == null ? 0 : status.excludedSourceFileCount,
+                includePackageCacheSourceAssemblies = status != null && status.includePackageCacheSourceAssemblies,
+                buildTarget = status == null ? null : status.buildTarget,
+                unityVersion = status == null ? null : status.unityVersion,
+                staleReason = status == null ? "missingStatus" : status.staleReason,
                 loadedProjects = status == null ? 0 : status.loadedProjects,
                 loadedDocuments = status == null ? 0 : status.loadedDocuments
             };

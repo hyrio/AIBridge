@@ -69,6 +69,30 @@ namespace AIBridge.Editor
                     AIBridgeEditorText.T("Fallback To Text Search", "语义不可用时文本降级"),
                     settings.FallbackToTextSearch);
 
+                settings.IncludePackageCacheSourceAssemblies = EditorGUILayout.Toggle(
+                    AIBridgeEditorText.T("Include PackageCache Source", "包含 PackageCache 源码"),
+                    settings.IncludePackageCacheSourceAssemblies);
+
+                EditorGUILayout.HelpBox(
+                    AIBridgeEditorText.T(
+                        "When disabled, PackageCache assemblies are excluded from source indexing but still kept as metadata references for project semantic resolution.",
+                        "关闭后，PackageCache 程序集不会作为源码索引项目，但仍会作为 metadata reference 保留，避免破坏工程代码语义解析。"),
+                    MessageType.None);
+
+                settings.IgnoredAssemblyPatterns = DrawCodeIndexPatternTextArea(
+                    AIBridgeEditorText.T("Ignored Assembly Patterns", "忽略程序集规则"),
+                    settings.IgnoredAssemblyPatterns);
+
+                settings.IgnoredSourcePathPatterns = DrawCodeIndexPatternTextArea(
+                    AIBridgeEditorText.T("Ignored Source Path Patterns", "忽略源码路径规则"),
+                    settings.IgnoredSourcePathPatterns);
+
+                EditorGUILayout.HelpBox(
+                    AIBridgeEditorText.T(
+                        "Patterns can be split by line, comma, or semicolon. Supports * and ?. Text without wildcards matches by contains.",
+                        "规则可用换行、逗号或分号分隔。支持 * 和 ?；不含通配符时按包含匹配。"),
+                    MessageType.None);
+
                 var cleanupIndex = GetCodeIndexCleanupModeIndex(settings.CleanupModeOnQuit);
                 cleanupIndex = EditorGUILayout.Popup(
                     AIBridgeEditorText.T("Cleanup Mode On Quit", "退出清理策略"),
@@ -87,6 +111,8 @@ namespace AIBridge.Editor
                 settings.WarmupDelaySeconds = Mathf.Max(0, settings.WarmupDelaySeconds);
                 settings.WarmupMode = AIBridgeProjectSettings.DefaultCodeIndexWarmupMode;
                 settings.CleanupModeOnQuit = AIBridgeProjectSettings.NormalizeCodeIndexCleanupMode(settings.CleanupModeOnQuit);
+                settings.IgnoredAssemblyPatterns = settings.IgnoredAssemblyPatterns ?? AIBridgeProjectSettings.DefaultCodeIndexIgnoredAssemblyPatterns;
+                settings.IgnoredSourcePathPatterns = settings.IgnoredSourcePathPatterns ?? AIBridgeProjectSettings.DefaultCodeIndexIgnoredSourcePathPatterns;
                 AIBridgeProjectSettings.Instance.SaveSettings();
                 AIBridgeCodeIndexEditorUtility.WriteCodeIndexConfig();
             }
@@ -101,9 +127,21 @@ namespace AIBridge.Editor
                 AIBridgeCodeIndexEditorUtility.GetIndexDirectory(),
                 EditorStyles.wordWrappedMiniLabel,
                 GUILayout.Height(20));
+            EditorGUILayout.SelectableLabel(
+                AIBridgeCodeIndexEditorUtility.GetSnapshotDirectory(),
+                EditorStyles.wordWrappedMiniLabel,
+                GUILayout.Height(20));
 
             EditorGUILayout.Space(8);
             EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button(AIBridgeEditorText.T("Generate Snapshot", "生成快照"), GUILayout.Height(24)))
+            {
+                var success = AIBridgeCodeIndexSnapshotUtility.GenerateSnapshot(out var message);
+                Debug.Log(AIBridgeEditorText.T(
+                    success ? "[AIBridge] Code Index snapshot generated: " + message : "[AIBridge] Code Index snapshot failed: " + message,
+                    success ? "[AIBridge] Code Index 快照已生成：" + message : "[AIBridge] Code Index 快照生成失败：" + message));
+            }
+
             if (GUILayout.Button(AIBridgeEditorText.T("Warmup Now", "立即预热"), GUILayout.Height(24)))
             {
                 var started = AIBridgeCodeIndexEditorUtility.StartWarmupNoWait(manual: true);
@@ -145,6 +183,12 @@ namespace AIBridge.Editor
             }
 
             return 0;
+        }
+
+        private static string DrawCodeIndexPatternTextArea(string label, string value)
+        {
+            EditorGUILayout.LabelField(label);
+            return EditorGUILayout.TextArea(value ?? string.Empty, GUILayout.MinHeight(42));
         }
 
         private float GetCodeIndexSettingsLabelWidth()

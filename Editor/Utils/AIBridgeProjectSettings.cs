@@ -93,9 +93,12 @@ namespace AIBridge.Editor
             public bool AutoRefreshOnFileChange = DefaultCodeIndexAutoRefreshOnFileChange;
             public bool FallbackToTextSearch = DefaultCodeIndexFallbackToTextSearch;
             public string CleanupModeOnQuit = DefaultCodeIndexCleanupModeOnQuit;
+            public bool IncludePackageCacheSourceAssemblies = DefaultCodeIndexIncludePackageCacheSourceAssemblies;
+            public string IgnoredAssemblyPatterns = DefaultCodeIndexIgnoredAssemblyPatterns;
+            public string IgnoredSourcePathPatterns = DefaultCodeIndexIgnoredSourcePathPatterns;
         }
 
-        public const int CurrentDataVersion = 15;
+        public const int CurrentDataVersion = 16;
         public const string DefaultEditorLanguage = "English";
         public const string LegacySharedSkillRootDirectory = ".skills";
         public const string DefaultSkillRootDirectory = "";
@@ -132,6 +135,9 @@ namespace AIBridge.Editor
         public const bool DefaultCodeIndexAutoRefreshOnFileChange = true;
         public const bool DefaultCodeIndexFallbackToTextSearch = true;
         public const string DefaultCodeIndexCleanupModeOnQuit = "processOnly";
+        public const bool DefaultCodeIndexIncludePackageCacheSourceAssemblies = false;
+        public const string DefaultCodeIndexIgnoredAssemblyPatterns = "";
+        public const string DefaultCodeIndexIgnoredSourcePathPatterns = "";
         public static readonly string[] SupportedCodeIndexCleanupModes = { "processOnly", "processAndTemp", "fullCleanup" };
         public static readonly string[] SupportedLogRetrievalTypes = { "all", "Log", "Warning", "Error" };
 
@@ -416,6 +422,16 @@ namespace AIBridge.Editor
                 }
 
                 codeIndex.CleanupModeOnQuit = NormalizeCodeIndexCleanupMode(codeIndex.CleanupModeOnQuit);
+                if (codeIndex.IgnoredAssemblyPatterns == null)
+                {
+                    codeIndex.IgnoredAssemblyPatterns = DefaultCodeIndexIgnoredAssemblyPatterns;
+                }
+
+                if (codeIndex.IgnoredSourcePathPatterns == null)
+                {
+                    codeIndex.IgnoredSourcePathPatterns = DefaultCodeIndexIgnoredSourcePathPatterns;
+                }
+
                 return codeIndex;
             }
         }
@@ -711,6 +727,13 @@ namespace AIBridge.Editor
                 codeIndex.AutoRefreshOnFileChange = DefaultCodeIndexAutoRefreshOnFileChange;
                 codeIndex.FallbackToTextSearch = DefaultCodeIndexFallbackToTextSearch;
                 codeIndex.CleanupModeOnQuit = DefaultCodeIndexCleanupModeOnQuit;
+            }
+
+            if (dataVersion < 16)
+            {
+                codeIndex.IncludePackageCacheSourceAssemblies = DefaultCodeIndexIncludePackageCacheSourceAssemblies;
+                codeIndex.IgnoredAssemblyPatterns = DefaultCodeIndexIgnoredAssemblyPatterns;
+                codeIndex.IgnoredSourcePathPatterns = DefaultCodeIndexIgnoredSourcePathPatterns;
             }
 
             if (dataVersion != CurrentDataVersion)

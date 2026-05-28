@@ -20,6 +20,7 @@ namespace AIBridgeCodeIndex
 
         private readonly CodeIndexOptions _options;
         private readonly object _statusLock = new object();
+        private readonly object _statusFileLock = new object();
         private readonly CodeIndexWorkspace _workspace;
         private TcpListener _listener;
         private CodeIndexStatus _status;
@@ -30,7 +31,7 @@ namespace AIBridgeCodeIndex
         public CodeIndexServer(CodeIndexOptions options)
         {
             _options = options;
-            _workspace = new CodeIndexWorkspace(options.ProjectRoot, options.SolutionPath);
+            _workspace = new CodeIndexWorkspace(options.ProjectRoot);
         }
 
         public async Task RunAsync()
@@ -96,6 +97,18 @@ namespace AIBridgeCodeIndex
                 {
                     _status.state = "ready";
                     _status.solution = _workspace.SolutionPath;
+                    _status.workspaceMode = _workspace.WorkspaceMode;
+                    _status.snapshotExists = _workspace.SnapshotExists;
+                    _status.snapshotVersion = _workspace.SnapshotVersion;
+                    _status.generationId = _workspace.GenerationId;
+                    _status.assemblyCount = _workspace.AssemblyCount;
+                    _status.sourceFileCount = _workspace.SourceFileCount;
+                    _status.excludedAssemblyCount = _workspace.ExcludedAssemblyCount;
+                    _status.excludedSourceFileCount = _workspace.ExcludedSourceFileCount;
+                    _status.includePackageCacheSourceAssemblies = _workspace.IncludePackageCacheSourceAssemblies;
+                    _status.buildTarget = _workspace.BuildTarget;
+                    _status.unityVersion = _workspace.UnityVersion;
+                    _status.staleReason = _workspace.StaleReason;
                     _status.loadedProjects = _workspace.LoadedProjects;
                     _status.loadedDocuments = _workspace.LoadedDocuments;
                     _status.stale = _workspace.IsStale();
@@ -111,6 +124,18 @@ namespace AIBridgeCodeIndex
                 {
                     _status.state = "failed";
                     _status.solution = _workspace.SolutionPath;
+                    _status.workspaceMode = _workspace.WorkspaceMode;
+                    _status.snapshotExists = _workspace.SnapshotExists;
+                    _status.snapshotVersion = _workspace.SnapshotVersion;
+                    _status.generationId = _workspace.GenerationId;
+                    _status.assemblyCount = _workspace.AssemblyCount;
+                    _status.sourceFileCount = _workspace.SourceFileCount;
+                    _status.excludedAssemblyCount = _workspace.ExcludedAssemblyCount;
+                    _status.excludedSourceFileCount = _workspace.ExcludedSourceFileCount;
+                    _status.includePackageCacheSourceAssemblies = _workspace.IncludePackageCacheSourceAssemblies;
+                    _status.buildTarget = _workspace.BuildTarget;
+                    _status.unityVersion = _workspace.UnityVersion;
+                    _status.staleReason = _workspace.StaleReason;
                     _status.loadedProjects = _workspace.LoadedProjects;
                     _status.loadedDocuments = _workspace.LoadedDocuments;
                     _status.stale = true;
@@ -167,6 +192,13 @@ namespace AIBridgeCodeIndex
 
                     await WriteResponseAsync(stream, 404, new { success = false, error = "Not found" });
                 }
+                catch (IOException ex)
+                {
+                    if (!IsClientDisconnect(ex))
+                    {
+                        Log("Request failed: " + ex);
+                    }
+                }
                 catch (Exception ex)
                 {
                     Log("Request failed: " + ex);
@@ -185,24 +217,36 @@ namespace AIBridgeCodeIndex
 
             if (!string.Equals(status.state, "ready", StringComparison.OrdinalIgnoreCase))
             {
-                return BuildFailure(status, "Roslyn workspace is not ready. Current state: " + status.state);
+                return BuildFailure(status, "Unity snapshot workspace is not ready. Current state: " + status.state);
             }
 
             await RefreshWorkspaceIfNeededAsync();
             status = GetStatusSnapshot();
             if (!string.Equals(status.state, "ready", StringComparison.OrdinalIgnoreCase))
             {
-                return BuildFailure(status, "Roslyn workspace is not ready. Current state: " + status.state);
+                return BuildFailure(status, "Unity snapshot workspace is not ready. Current state: " + status.state);
             }
 
             var response = await _workspace.QueryAsync(query.action, query.parameters);
             response.success = true;
             response.semantic = true;
-            response.source = "roslyn-msbuild";
+            response.source = "unity-snapshot";
             response.state = status.state;
             response.stale = status.stale;
             response.projectRoot = status.projectRoot;
             response.solution = _workspace.SolutionPath;
+            response.workspaceMode = _workspace.WorkspaceMode;
+            response.snapshotExists = _workspace.SnapshotExists;
+            response.snapshotVersion = _workspace.SnapshotVersion;
+            response.generationId = _workspace.GenerationId;
+            response.assemblyCount = _workspace.AssemblyCount;
+            response.sourceFileCount = _workspace.SourceFileCount;
+            response.excludedAssemblyCount = _workspace.ExcludedAssemblyCount;
+            response.excludedSourceFileCount = _workspace.ExcludedSourceFileCount;
+            response.includePackageCacheSourceAssemblies = _workspace.IncludePackageCacheSourceAssemblies;
+            response.buildTarget = _workspace.BuildTarget;
+            response.unityVersion = _workspace.UnityVersion;
+            response.staleReason = _workspace.StaleReason;
             response.loadedProjects = _workspace.LoadedProjects;
             response.loadedDocuments = _workspace.LoadedDocuments;
             return response;
@@ -214,11 +258,23 @@ namespace AIBridgeCodeIndex
             {
                 success = false,
                 semantic = false,
-                source = "roslyn-msbuild",
+                source = "unity-snapshot",
                 state = status == null ? "unknown" : status.state,
                 stale = true,
                 projectRoot = status == null ? null : status.projectRoot,
                 solution = status == null ? null : status.solution,
+                workspaceMode = status == null ? "unity-snapshot" : status.workspaceMode,
+                snapshotExists = status != null && status.snapshotExists,
+                snapshotVersion = status == null ? 0 : status.snapshotVersion,
+                generationId = status == null ? null : status.generationId,
+                assemblyCount = status == null ? 0 : status.assemblyCount,
+                sourceFileCount = status == null ? 0 : status.sourceFileCount,
+                excludedAssemblyCount = status == null ? 0 : status.excludedAssemblyCount,
+                excludedSourceFileCount = status == null ? 0 : status.excludedSourceFileCount,
+                includePackageCacheSourceAssemblies = status != null && status.includePackageCacheSourceAssemblies,
+                buildTarget = status == null ? null : status.buildTarget,
+                unityVersion = status == null ? null : status.unityVersion,
+                staleReason = status == null ? "unknown" : status.staleReason,
                 loadedProjects = status == null ? 0 : status.loadedProjects,
                 loadedDocuments = status == null ? 0 : status.loadedDocuments,
                 error = error
@@ -233,8 +289,8 @@ namespace AIBridgeCodeIndex
                 return;
             }
 
-            // 文件或工程结构变化后在查询前重载，避免返回过期语义位置。
-            UpdateStatus("loading", "Source files changed; refreshing Roslyn workspace.");
+            // 快照 manifest 变化后在下一次查询前重载，避免返回过期语义位置。
+            UpdateStatus("loading", "Unity compilation snapshot changed; refreshing Code Index workspace.");
             await WarmupAsync();
         }
 
@@ -245,6 +301,7 @@ namespace AIBridgeCodeIndex
                 if (_status != null && string.Equals(_status.state, "ready", StringComparison.OrdinalIgnoreCase))
                 {
                     _status.stale = _workspace.IsStale();
+                    _status.staleReason = _workspace.StaleReason;
                     _status.updatedAt = DateTimeOffset.Now.ToString("o");
                 }
             }
@@ -326,6 +383,18 @@ namespace AIBridgeCodeIndex
                 state = "starting",
                 stale = true,
                 solution = _workspace.SolutionPath,
+                workspaceMode = _workspace.WorkspaceMode,
+                snapshotExists = _workspace.SnapshotExists,
+                snapshotVersion = _workspace.SnapshotVersion,
+                generationId = _workspace.GenerationId,
+                assemblyCount = _workspace.AssemblyCount,
+                sourceFileCount = _workspace.SourceFileCount,
+                excludedAssemblyCount = _workspace.ExcludedAssemblyCount,
+                excludedSourceFileCount = _workspace.ExcludedSourceFileCount,
+                includePackageCacheSourceAssemblies = _workspace.IncludePackageCacheSourceAssemblies,
+                buildTarget = _workspace.BuildTarget,
+                unityVersion = _workspace.UnityVersion,
+                staleReason = "starting",
                 startedAt = now,
                 updatedAt = now
             };
@@ -358,6 +427,18 @@ namespace AIBridgeCodeIndex
                     state = _status.state,
                     stale = _status.stale,
                     solution = _status.solution,
+                    workspaceMode = _status.workspaceMode,
+                    snapshotExists = _status.snapshotExists,
+                    snapshotVersion = _status.snapshotVersion,
+                    generationId = _status.generationId,
+                    assemblyCount = _status.assemblyCount,
+                    sourceFileCount = _status.sourceFileCount,
+                    excludedAssemblyCount = _status.excludedAssemblyCount,
+                    excludedSourceFileCount = _status.excludedSourceFileCount,
+                    includePackageCacheSourceAssemblies = _status.includePackageCacheSourceAssemblies,
+                    buildTarget = _status.buildTarget,
+                    unityVersion = _status.unityVersion,
+                    staleReason = _status.staleReason,
                     loadedProjects = _status.loadedProjects,
                     loadedDocuments = _status.loadedDocuments,
                     startedAt = _status.startedAt,
@@ -376,15 +457,18 @@ namespace AIBridgeCodeIndex
 
             try
             {
-                var directory = Path.GetDirectoryName(_options.StatusPath);
-                if (!string.IsNullOrEmpty(directory))
+                lock (_statusFileLock)
                 {
-                    Directory.CreateDirectory(directory);
-                    var lockPath = Path.Combine(directory, "lock.json");
-                    File.WriteAllText(lockPath, JsonConvert.SerializeObject(GetStatusSnapshot(), Formatting.Indented, JsonSettings), Encoding.UTF8);
-                }
+                    var directory = Path.GetDirectoryName(_options.StatusPath);
+                    if (!string.IsNullOrEmpty(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                        var lockPath = Path.Combine(directory, "lock.json");
+                        File.WriteAllText(lockPath, JsonConvert.SerializeObject(GetStatusSnapshot(), Formatting.Indented, JsonSettings), Encoding.UTF8);
+                    }
 
-                File.WriteAllText(_options.StatusPath, JsonConvert.SerializeObject(GetStatusSnapshot(), Formatting.Indented, JsonSettings), Encoding.UTF8);
+                    File.WriteAllText(_options.StatusPath, JsonConvert.SerializeObject(GetStatusSnapshot(), Formatting.Indented, JsonSettings), Encoding.UTF8);
+                }
             }
             catch (Exception ex)
             {
@@ -553,6 +637,26 @@ namespace AIBridgeCodeIndex
             var headerBytes = Encoding.ASCII.GetBytes(header);
             await stream.WriteAsync(headerBytes, 0, headerBytes.Length);
             await stream.WriteAsync(bodyBytes, 0, bodyBytes.Length);
+        }
+
+        private static bool IsClientDisconnect(Exception ex)
+        {
+            var current = ex;
+            while (current != null)
+            {
+                var socket = current as SocketException;
+                if (socket != null
+                    && (socket.SocketErrorCode == SocketError.ConnectionAborted
+                        || socket.SocketErrorCode == SocketError.ConnectionReset
+                        || socket.SocketErrorCode == SocketError.Shutdown))
+                {
+                    return true;
+                }
+
+                current = current.InnerException;
+            }
+
+            return false;
         }
 
         private void Log(string message)

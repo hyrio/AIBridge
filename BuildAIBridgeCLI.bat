@@ -45,6 +45,11 @@ echo [AIBridge] Build CodeIndex daemon...
 echo [AIBridge] Project: %CODE_INDEX_PROJECT_FILE%
 echo [AIBridge] Output : %CODE_INDEX_OUTPUT_DIR%
 
+if exist "%CODE_INDEX_OUTPUT_DIR%" (
+    echo [AIBridge] Clean stale CodeIndex output...
+    rmdir /s /q "%CODE_INDEX_OUTPUT_DIR%"
+)
+
 dotnet publish "%CODE_INDEX_PROJECT_FILE%" ^
     -c %CONFIGURATION% ^
     -r %RUNTIME_ID% ^
