@@ -7,7 +7,7 @@
 [English](./README.md) | 中文
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.4.3](https://img.shields.io/badge/Package-1.4.3-5b6cff?style=flat-square)
+![Package 1.4.4](https://img.shields.io/badge/Package-1.4.4-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
@@ -62,6 +62,12 @@ AIBridge 的 Editor 自动化使用落盘命令请求和结果文件，Player �
 
 ```text
 https://github.com/liyingsong99/AIBridge.git
+```
+
+如果想尝试当前开发分支，可以显式安装 `dev` 分支：
+
+```text
+https://github.com/liyingsong99/AIBridge.git#dev
 ```
 
 UPM 备用 Git 地址：

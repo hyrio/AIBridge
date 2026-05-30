@@ -7,7 +7,7 @@
 English | [中文](./README_CN.md)
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.4.3](https://img.shields.io/badge/Package-1.4.3-5b6cff?style=flat-square)
+![Package 1.4.4](https://img.shields.io/badge/Package-1.4.4-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
@@ -62,6 +62,12 @@ Install with Unity Package Manager using this Git URL:
 
 ```text
 https://github.com/liyingsong99/AIBridge.git
+```
+
+To try the current development branch, install the `dev` branch explicitly:
+
+```text
+https://github.com/liyingsong99/AIBridge.git#dev
 ```
 
 Backup UPM Git URL:
