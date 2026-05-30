@@ -44,6 +44,8 @@ namespace AIBridgeCodeIndex
         private Dictionary<string, AssemblySnapshot> _assemblyById = new Dictionary<string, AssemblySnapshot>(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _loadedAssemblyIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, HashSet<string>> _tokenDocumentIndex;
+        private List<CodeIndexItem> _semanticSymbols;
+        private string _semanticSymbolsSnapshotContentHash;
         private string _loadedSnapshotContentHash;
         private bool _loadedAllAssemblies;
         private bool _disposed;
@@ -145,7 +147,7 @@ namespace AIBridgeCodeIndex
             switch ((action ?? string.Empty).Trim().ToLowerInvariant())
             {
                 case "symbol":
-                    return QuerySymbol(GetString(parameters, "query"));
+                    return await QuerySymbolAsync(GetString(parameters, "query"));
                 case "definition":
                     return await QueryDefinitionAsync(parameters);
                 case "references":
@@ -180,6 +182,8 @@ namespace AIBridgeCodeIndex
             _metadataReferenceCache.Clear();
             _documentPathMap.Clear();
             _tokenDocumentIndex = null;
+            _semanticSymbols = null;
+            _semanticSymbolsSnapshotContentHash = null;
             _symbols = symbols;
             _loadedAssemblyIds.Clear();
             _loadedAllAssemblies = false;
@@ -257,6 +261,8 @@ namespace AIBridgeCodeIndex
             var previousWorkspace = _workspace;
             _workspace = workspace;
             _solution = solution;
+            _semanticSymbols = null;
+            _semanticSymbolsSnapshotContentHash = null;
             workspace.TryApplyChanges(solution);
             RebuildDocumentPathMap();
             _loadedAssemblyIds = new HashSet<string>(projectIds.Keys, StringComparer.OrdinalIgnoreCase);
@@ -778,7 +784,7 @@ namespace AIBridgeCodeIndex
             return true;
         }
 
-        private CodeIndexResponse QuerySymbol(string query)
+        private async Task<CodeIndexResponse> QuerySymbolAsync(string query)
         {
             if (string.IsNullOrWhiteSpace(query))
             {
@@ -786,9 +792,30 @@ namespace AIBridgeCodeIndex
             }
 
             var normalized = query.Trim();
-            var items = SelectTopSymbols(_symbols, normalized);
+            // symbol 查询需要准确的声明类型和列号；首次调用时才加载完整语义表，避免 warmup 阶段过重。
+            EnsureSemanticWorkspaceLoaded();
+            var semanticSymbols = await GetSemanticSymbolsAsync();
+            var items = SelectTopSymbols(semanticSymbols, normalized);
+            if (items.Count == 0)
+            {
+                items = SelectTopSymbols(_symbols, normalized);
+            }
 
             return BuildResponse(null, items);
+        }
+
+        private async Task<List<CodeIndexItem>> GetSemanticSymbolsAsync()
+        {
+            if (_semanticSymbols != null
+                && string.Equals(_semanticSymbolsSnapshotContentHash, _loadedSnapshotContentHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return _semanticSymbols;
+            }
+
+            var symbols = await BuildSymbolTableAsync(_solution);
+            _semanticSymbols = symbols;
+            _semanticSymbolsSnapshotContentHash = _loadedSnapshotContentHash;
+            return symbols;
         }
 
         private async Task<CodeIndexResponse> QueryDefinitionAsync(Dictionary<string, object> parameters)
@@ -1963,12 +1990,19 @@ namespace AIBridgeCodeIndex
                             || node is DelegateDeclarationSyntax
                             || node is MethodDeclarationSyntax
                             || node is ConstructorDeclarationSyntax
-                            || node is PropertyDeclarationSyntax)
+                            || node is PropertyDeclarationSyntax
+                            || node is EventDeclarationSyntax)
                         {
                             symbol = semanticModel.GetDeclaredSymbol(node);
                         }
+                        else if (node is EnumMemberDeclarationSyntax enumMember)
+                        {
+                            symbol = semanticModel.GetDeclaredSymbol(enumMember);
+                        }
                         else if (node is VariableDeclaratorSyntax variable
-                                 && (variable.Parent != null && variable.Parent.Parent is FieldDeclarationSyntax))
+                                 && variable.Parent != null
+                                 && (variable.Parent.Parent is FieldDeclarationSyntax
+                                     || variable.Parent.Parent is EventFieldDeclarationSyntax))
                         {
                             symbol = semanticModel.GetDeclaredSymbol(variable);
                         }

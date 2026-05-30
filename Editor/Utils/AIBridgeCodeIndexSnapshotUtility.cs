@@ -114,6 +114,8 @@ namespace AIBridge.Editor
                         return new SnapshotResult(false, "snapshot worker did not start");
                     }
 
+                    var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                    var stderrTask = process.StandardError.ReadToEndAsync();
                     if (!process.WaitForExit(SnapshotWorkerTimeoutMs))
                     {
                         try
@@ -127,8 +129,8 @@ namespace AIBridge.Editor
                         return new SnapshotResult(false, "snapshot worker timed out after " + SnapshotWorkerTimeoutMs.ToString(CultureInfo.InvariantCulture) + "ms");
                     }
 
-                    var stdout = process.StandardOutput.ReadToEnd();
-                    var stderr = process.StandardError.ReadToEnd();
+                    var stdout = stdoutTask.GetAwaiter().GetResult();
+                    var stderr = stderrTask.GetAwaiter().GetResult();
                     return BuildWorkerResult(process.ExitCode, stdout, stderr);
                 }
             }

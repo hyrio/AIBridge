@@ -21,6 +21,7 @@ namespace AIBridgeCLI.Commands
         private const string SnapshotDirectoryName = "snapshot";
         private const string DaemonDirectoryName = "CodeIndex";
         private const string DaemonAssemblyName = "AIBridgeCodeIndex";
+        private const string DaemonProcessFileName = "daemon-process.json";
         private const int SnapshotSchemaVersion = 2;
         private const int ManifestFormatKind = 1;
         private const string SnapshotMagic = "AIBCI";
@@ -174,7 +175,7 @@ namespace AIBridgeCLI.Commands
                 }
             }
 
-            await EnsureDaemonStoppedAsync(daemonPid);
+            await EnsureDaemonStoppedAsync(daemonPid, context.DaemonProcessPath);
 
             ResetIndexDirectory(context, context.IncludeSnapshotOnReset);
 
@@ -205,6 +206,7 @@ namespace AIBridgeCLI.Commands
 
             DeleteFileIfExists(context.StatusPath);
             DeleteFileIfExists(Path.Combine(context.IndexDirectory, "lock.json"));
+            DeleteFileIfExists(context.DaemonProcessPath);
             DeleteDirectoryIfExists(Path.Combine(context.IndexDirectory, "temp"));
             DeleteDirectoryIfExists(Path.Combine(context.IndexDirectory, "logs"));
             DeleteDirectoryIfExists(Path.Combine(context.IndexDirectory, "daemon"));
@@ -216,7 +218,7 @@ namespace AIBridgeCLI.Commands
             }
         }
 
-        private static async Task EnsureDaemonStoppedAsync(int daemonPid)
+        private static async Task EnsureDaemonStoppedAsync(int daemonPid, string markerPath)
         {
             if (daemonPid <= 0)
             {
@@ -225,7 +227,7 @@ namespace AIBridgeCLI.Commands
 
             for (var i = 0; i < 20; i++)
             {
-                if (!TryGetCodeIndexProcess(daemonPid, out var process))
+                if (!TryGetCodeIndexProcess(daemonPid, markerPath, out var process))
                 {
                     return;
                 }
@@ -234,7 +236,7 @@ namespace AIBridgeCLI.Commands
                 await Task.Delay(100);
             }
 
-            if (!TryGetCodeIndexProcess(daemonPid, out var remaining))
+            if (!TryGetCodeIndexProcess(daemonPid, markerPath, out var remaining))
             {
                 return;
             }
@@ -246,14 +248,13 @@ namespace AIBridgeCLI.Commands
             }
         }
 
-        private static bool TryGetCodeIndexProcess(int processId, out Process process)
+        private static bool TryGetCodeIndexProcess(int processId, string markerPath, out Process process)
         {
             process = null;
             try
             {
                 var candidate = Process.GetProcessById(processId);
-                if (candidate.HasExited
-                    || candidate.ProcessName.IndexOf(DaemonAssemblyName, StringComparison.OrdinalIgnoreCase) < 0)
+                if (candidate.HasExited || !IsCodeIndexProcess(candidate, markerPath))
                 {
                     candidate.Dispose();
                     return false;
@@ -261,6 +262,47 @@ namespace AIBridgeCLI.Commands
 
                 process = candidate;
                 return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsCodeIndexProcess(Process candidate, string markerPath)
+        {
+            if (candidate == null)
+            {
+                return false;
+            }
+
+            if (candidate.ProcessName.IndexOf(DaemonAssemblyName, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            return MatchesDaemonProcessMarker(candidate, markerPath);
+        }
+
+        private static bool MatchesDaemonProcessMarker(Process candidate, string markerPath)
+        {
+            if (candidate == null || string.IsNullOrWhiteSpace(markerPath) || !File.Exists(markerPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                var marker = JObject.Parse(File.ReadAllText(markerPath, Encoding.UTF8));
+                var pid = marker.Value<int?>("daemonPid") ?? 0;
+                var startedAtUtcTicks = marker.Value<long?>("startedAtUtcTicks") ?? 0L;
+                if (pid != candidate.Id || startedAtUtcTicks <= 0)
+                {
+                    return false;
+                }
+
+                var processStartTicks = candidate.StartTime.ToUniversalTime().Ticks;
+                return Math.Abs(processStartTicks - startedAtUtcTicks) <= TimeSpan.FromSeconds(2).Ticks;
             }
             catch
             {
@@ -560,8 +602,8 @@ namespace AIBridgeCLI.Commands
             startInfo.UseShellExecute = false;
             startInfo.CreateNoWindow = true;
             startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-            startInfo.RedirectStandardOutput = true;
-            startInfo.RedirectStandardError = true;
+            startInfo.RedirectStandardOutput = false;
+            startInfo.RedirectStandardError = false;
             daemon.AddLaunchArguments(startInfo, context, token);
 
             var process = Process.Start(startInfo);
@@ -571,7 +613,51 @@ namespace AIBridgeCLI.Commands
             }
 
             ApplyDaemonPriority(process, context.ProcessPriority);
+            WriteDaemonProcessMarker(context, daemon, process);
             process.Dispose();
+        }
+
+        private static void WriteDaemonProcessMarker(CodeIndexContext context, CodeIndexDaemonExecutable daemon, Process process)
+        {
+            if (context == null || daemon == null || process == null || string.IsNullOrWhiteSpace(context.DaemonProcessPath))
+            {
+                return;
+            }
+
+            try
+            {
+                var startedAtUtcTicks = 0L;
+                try
+                {
+                    startedAtUtcTicks = process.StartTime.ToUniversalTime().Ticks;
+                }
+                catch
+                {
+                }
+
+                var daemonProcessDirectory = Path.GetDirectoryName(context.DaemonProcessPath);
+                if (!string.IsNullOrWhiteSpace(daemonProcessDirectory))
+                {
+                    Directory.CreateDirectory(daemonProcessDirectory);
+                }
+
+                File.WriteAllText(
+                    context.DaemonProcessPath,
+                    new JObject
+                    {
+                        ["daemonPid"] = process.Id,
+                        ["processName"] = process.ProcessName,
+                        ["startedAtUtcTicks"] = startedAtUtcTicks,
+                        ["launchMode"] = daemon.LaunchMode,
+                        ["daemonPath"] = daemon.DisplayPath,
+                        ["projectRoot"] = context.ProjectRoot
+                    }.ToString(Formatting.None),
+                    Encoding.UTF8);
+            }
+            catch
+            {
+                // marker 只用于 dotnet 启动模式下的保守清理；写入失败不能阻止 daemon 启动。
+            }
         }
 
         private static void ApplyDaemonPriority(Process process, string priority)
@@ -1243,7 +1329,7 @@ namespace AIBridgeCLI.Commands
             }
 
             var sourceLine = File.ReadLines(fullPath).Skip(Math.Max(0, line - 1)).FirstOrDefault();
-            if (sourceLine == null)
+            if (string.IsNullOrEmpty(sourceLine))
             {
                 return null;
             }
@@ -1557,6 +1643,7 @@ namespace AIBridgeCLI.Commands
             public string SnapshotManifestPath { get; private set; }
             public string SnapshotJsonPath { get; private set; }
             public string StatusPath { get; private set; }
+            public string DaemonProcessPath { get; private set; }
             public bool HasUnityProjectMarkers { get; private set; }
             public int UnityPid { get; private set; }
             public bool Enabled { get; private set; }
@@ -1582,6 +1669,7 @@ namespace AIBridgeCLI.Commands
                     SnapshotManifestPath = Path.Combine(snapshotDirectory, "manifest.bin"),
                     SnapshotJsonPath = Path.Combine(snapshotDirectory, "manifest.json"),
                     StatusPath = Path.Combine(indexDirectory, "status.json"),
+                    DaemonProcessPath = Path.Combine(indexDirectory, DaemonProcessFileName),
                     UnityPid = unityPid,
                     Enabled = GetConfigBool(config, "enableCodeIndex", false),
                     AutoRefresh = ResolveBool(options, "auto-refresh", GetConfigBool(config, "autoRefreshOnFileChange", true)),
@@ -1717,6 +1805,7 @@ namespace AIBridgeCLI.Commands
 
             public bool CanStart { get { return !string.IsNullOrEmpty(_path); } }
             public string DisplayPath { get { return _path; } }
+            public string LaunchMode { get { return _mode.ToString(); } }
 
             public static CodeIndexDaemonExecutable Resolve()
             {

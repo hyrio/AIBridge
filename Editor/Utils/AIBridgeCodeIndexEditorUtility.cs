@@ -20,6 +20,8 @@ namespace AIBridge.Editor
         private const string StatusFileName = "status.json";
         private const string LockFileName = "lock.json";
         private const string ConfigFileName = "config.json";
+        private const string DaemonProcessFileName = "daemon-process.json";
+        private const string DaemonAssemblyName = "AIBridgeCodeIndex";
         private const string TempDirectoryName = "temp";
         private const string LogsDirectoryName = "logs";
         private const int StartupRetryDelaySeconds = 2;
@@ -61,6 +63,11 @@ namespace AIBridge.Editor
         public static string GetStatusPath()
         {
             return Path.Combine(GetIndexDirectory(), StatusFileName);
+        }
+
+        private static string GetDaemonProcessPath()
+        {
+            return Path.Combine(GetIndexDirectory(), DaemonProcessFileName);
         }
 
         public static string GetSnapshotDirectory()
@@ -262,7 +269,7 @@ namespace AIBridge.Editor
 
             if (status != null && status.DaemonPid > 0)
             {
-                WaitOrKillDaemon(status.DaemonPid, timeoutMs);
+                WaitOrKillDaemon(status.DaemonPid, GetDaemonProcessPath(), timeoutMs);
             }
 
             CleanupIndexDirectory(cleanupMode);
@@ -589,12 +596,12 @@ namespace AIBridge.Editor
             }
         }
 
-        private static void WaitOrKillDaemon(int daemonPid, int timeoutMs)
+        private static void WaitOrKillDaemon(int daemonPid, string markerPath, int timeoutMs)
         {
             var deadline = DateTime.UtcNow.AddMilliseconds(Math.Max(500, timeoutMs));
             while (DateTime.UtcNow < deadline)
             {
-                if (!TryGetCodeIndexProcess(daemonPid, out var process))
+                if (!TryGetCodeIndexProcess(daemonPid, markerPath, out var process))
                 {
                     return;
                 }
@@ -603,7 +610,7 @@ namespace AIBridge.Editor
                 System.Threading.Thread.Sleep(100);
             }
 
-            if (!TryGetCodeIndexProcess(daemonPid, out var remaining))
+            if (!TryGetCodeIndexProcess(daemonPid, markerPath, out var remaining))
             {
                 return;
             }
@@ -621,14 +628,13 @@ namespace AIBridge.Editor
             }
         }
 
-        private static bool TryGetCodeIndexProcess(int processId, out Process process)
+        private static bool TryGetCodeIndexProcess(int processId, string markerPath, out Process process)
         {
             process = null;
             try
             {
                 var candidate = Process.GetProcessById(processId);
-                if (candidate.HasExited
-                    || candidate.ProcessName.IndexOf("AIBridgeCodeIndex", StringComparison.OrdinalIgnoreCase) < 0)
+                if (candidate.HasExited || !IsCodeIndexProcess(candidate, markerPath))
                 {
                     candidate.Dispose();
                     return false;
@@ -636,6 +642,47 @@ namespace AIBridge.Editor
 
                 process = candidate;
                 return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsCodeIndexProcess(Process candidate, string markerPath)
+        {
+            if (candidate == null)
+            {
+                return false;
+            }
+
+            if (candidate.ProcessName.IndexOf(DaemonAssemblyName, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            return MatchesDaemonProcessMarker(candidate, markerPath);
+        }
+
+        private static bool MatchesDaemonProcessMarker(Process candidate, string markerPath)
+        {
+            if (candidate == null || string.IsNullOrWhiteSpace(markerPath) || !File.Exists(markerPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(markerPath, Encoding.UTF8);
+                var pid = ReadInt(json, "daemonPid");
+                var startedAtUtcTicks = ReadLong(json, "startedAtUtcTicks");
+                if (pid != candidate.Id || startedAtUtcTicks <= 0)
+                {
+                    return false;
+                }
+
+                var processStartTicks = candidate.StartTime.ToUniversalTime().Ticks;
+                return Math.Abs(processStartTicks - startedAtUtcTicks) <= TimeSpan.FromSeconds(2).Ticks;
             }
             catch
             {
@@ -660,6 +707,7 @@ namespace AIBridge.Editor
 
             DeleteFileIfExists(Path.Combine(directory, StatusFileName));
             DeleteFileIfExists(Path.Combine(directory, LockFileName));
+            DeleteFileIfExists(Path.Combine(directory, DaemonProcessFileName));
             DeleteDirectoryIfExists(Path.Combine(directory, TempDirectoryName));
 
             if (normalized == "processAndTemp")
@@ -723,6 +771,18 @@ namespace AIBridge.Editor
             }
 
             int.TryParse(match.Groups["value"].Value, out var value);
+            return value;
+        }
+
+        private static long ReadLong(string json, string key)
+        {
+            var match = Regex.Match(json ?? string.Empty, "\"" + Regex.Escape(key) + "\"\\s*:\\s*(?<value>\\d+)");
+            if (!match.Success)
+            {
+                return 0L;
+            }
+
+            long.TryParse(match.Groups["value"].Value, out var value);
             return value;
         }
 

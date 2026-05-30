@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 
@@ -23,6 +24,7 @@ namespace AIBridgeCodeIndex
         private readonly object _statusFileLock = new object();
         private readonly object _refreshLock = new object();
         private readonly object _workspaceLock = new object();
+        private readonly SemaphoreSlim _queryGate = new SemaphoreSlim(1, 1);
         private CodeIndexWorkspace _workspace;
         private TcpListener _listener;
         private CodeIndexStatus _status;
@@ -261,6 +263,19 @@ namespace AIBridgeCodeIndex
 
         private async Task<CodeIndexResponse> ExecuteQueryAsync(CodeIndexRequest query)
         {
+            await _queryGate.WaitAsync();
+            try
+            {
+                return await ExecuteQueryCoreAsync(query);
+            }
+            finally
+            {
+                _queryGate.Release();
+            }
+        }
+
+        private async Task<CodeIndexResponse> ExecuteQueryCoreAsync(CodeIndexRequest query)
+        {
             var status = GetStatusSnapshot();
             if (query == null || string.IsNullOrWhiteSpace(query.action))
             {
@@ -426,53 +441,61 @@ namespace AIBridgeCodeIndex
                     return;
                 }
 
-                if (!IsStatusReady())
+                await _queryGate.WaitAsync();
+                try
                 {
-                    return;
-                }
-
-                var stale = nextWorkspace.IsStale();
-                var staleReason = nextWorkspace.StaleReason;
-                CodeIndexWorkspace oldWorkspace;
-                lock (_workspaceLock)
-                {
-                    oldWorkspace = _workspace;
-                    _workspace = nextWorkspace;
-                    swapped = true;
-                }
-
-                ScheduleWorkspaceDispose(oldWorkspace);
-
-                lock (_statusLock)
-                {
-                    if (_status == null || !string.Equals(_status.state, "ready", StringComparison.OrdinalIgnoreCase))
+                    if (_shutdownRequested || !IsStatusReady())
                     {
                         return;
                     }
 
-                    _status.state = "ready";
-                    _status.solution = nextWorkspace.SolutionPath;
-                    _status.workspaceMode = nextWorkspace.WorkspaceMode;
-                    _status.snapshotExists = nextWorkspace.SnapshotExists;
-                    _status.snapshotVersion = nextWorkspace.SnapshotVersion;
-                    _status.generationId = nextWorkspace.GenerationId;
-                    _status.snapshotContentHash = nextWorkspace.SnapshotContentHash;
-                    _status.assemblyCount = nextWorkspace.AssemblyCount;
-                    _status.sourceFileCount = nextWorkspace.SourceFileCount;
-                    _status.excludedAssemblyCount = nextWorkspace.ExcludedAssemblyCount;
-                    _status.excludedSourceFileCount = nextWorkspace.ExcludedSourceFileCount;
-                    _status.includePackageCacheSourceAssemblies = nextWorkspace.IncludePackageCacheSourceAssemblies;
-                    _status.buildTarget = nextWorkspace.BuildTarget;
-                    _status.unityVersion = nextWorkspace.UnityVersion;
-                    _status.staleReason = staleReason;
-                    _status.loadedProjects = nextWorkspace.LoadedProjects;
-                    _status.loadedDocuments = nextWorkspace.LoadedDocuments;
-                    _status.stale = stale;
-                    _status.message = null;
-                    _status.updatedAt = DateTimeOffset.Now.ToString("o");
-                }
+                    var stale = nextWorkspace.IsStale();
+                    var staleReason = nextWorkspace.StaleReason;
+                    CodeIndexWorkspace oldWorkspace;
+                    lock (_workspaceLock)
+                    {
+                        oldWorkspace = _workspace;
+                        _workspace = nextWorkspace;
+                        swapped = true;
+                    }
 
-                WriteStatus();
+                    ScheduleWorkspaceDispose(oldWorkspace);
+
+                    lock (_statusLock)
+                    {
+                        if (_status == null || !string.Equals(_status.state, "ready", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return;
+                        }
+
+                        _status.state = "ready";
+                        _status.solution = nextWorkspace.SolutionPath;
+                        _status.workspaceMode = nextWorkspace.WorkspaceMode;
+                        _status.snapshotExists = nextWorkspace.SnapshotExists;
+                        _status.snapshotVersion = nextWorkspace.SnapshotVersion;
+                        _status.generationId = nextWorkspace.GenerationId;
+                        _status.snapshotContentHash = nextWorkspace.SnapshotContentHash;
+                        _status.assemblyCount = nextWorkspace.AssemblyCount;
+                        _status.sourceFileCount = nextWorkspace.SourceFileCount;
+                        _status.excludedAssemblyCount = nextWorkspace.ExcludedAssemblyCount;
+                        _status.excludedSourceFileCount = nextWorkspace.ExcludedSourceFileCount;
+                        _status.includePackageCacheSourceAssemblies = nextWorkspace.IncludePackageCacheSourceAssemblies;
+                        _status.buildTarget = nextWorkspace.BuildTarget;
+                        _status.unityVersion = nextWorkspace.UnityVersion;
+                        _status.staleReason = staleReason;
+                        _status.loadedProjects = nextWorkspace.LoadedProjects;
+                        _status.loadedDocuments = nextWorkspace.LoadedDocuments;
+                        _status.stale = stale;
+                        _status.message = null;
+                        _status.updatedAt = DateTimeOffset.Now.ToString("o");
+                    }
+
+                    WriteStatus();
+                }
+                finally
+                {
+                    _queryGate.Release();
+                }
             }
             catch (Exception ex)
             {
@@ -734,6 +757,7 @@ namespace AIBridgeCodeIndex
 
                 DeleteFileIfExists(_options.StatusPath);
                 DeleteFileIfExists(Path.Combine(directory, "lock.json"));
+                DeleteFileIfExists(Path.Combine(directory, "daemon-process.json"));
 
                 var tempDirectory = Path.Combine(directory, "temp");
                 if (Directory.Exists(tempDirectory))
