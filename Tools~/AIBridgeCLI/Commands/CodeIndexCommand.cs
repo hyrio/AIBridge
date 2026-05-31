@@ -363,10 +363,7 @@ namespace AIBridgeCLI.Commands
                     continue;
                 }
 
-                if (item["executeTimeoutMs"] == null)
-                {
-                    item["executeTimeoutMs"] = ResolveBatchItemTimeout(item);
-                }
+                item.Remove("executeTimeoutMs");
             }
 
             payload["queueTimeoutMs"] = batchTimeouts.QueueTimeoutMs;

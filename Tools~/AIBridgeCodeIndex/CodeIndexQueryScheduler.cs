@@ -19,6 +19,7 @@ namespace AIBridgeCodeIndex
         private readonly object _sync = new object();
         private readonly LinkedList<ScheduledQuery> _queue = new LinkedList<ScheduledQuery>();
         private readonly Dictionary<string, QueryCacheEntry> _queryCache = new Dictionary<string, QueryCacheEntry>(StringComparer.Ordinal);
+        private readonly Dictionary<string, ScheduledQuery> _inFlight = new Dictionary<string, ScheduledQuery>(StringComparer.Ordinal);
         private readonly SemaphoreSlim _signal = new SemaphoreSlim(0);
         private readonly CancellationTokenSource _shutdown = new CancellationTokenSource();
         private readonly Func<CodeIndexRequest, CancellationToken, Task<CodeIndexResponse>> _executeAsync;
@@ -75,12 +76,18 @@ namespace AIBridgeCodeIndex
                     return Task.FromResult(cachedResponse);
                 }
 
+                if (TryAttachDuplicate(scheduled))
+                {
+                    return scheduled.Completion.Task;
+                }
+
                 if (_queue.Count >= _capacity)
                 {
                     return Task.FromResult(BuildQueueFailure(scheduled, "queue_full", "Code index query queue is full."));
                 }
 
                 scheduled.Node = _queue.AddLast(scheduled);
+                TrackInFlight(scheduled);
                 _totalQueued++;
             }
 
@@ -213,15 +220,9 @@ namespace AIBridgeCodeIndex
                         "Code index query execution timed out after " + query.ExecuteTimeoutMs + "ms.");
                     CompleteQuery(query, response, stopwatch.ElapsedMilliseconds, timedOut: true, clearActive: false);
 
-                    try
-                    {
-                        await executionTask;
-                    }
-                    catch
-                    {
-                    }
-
+                    _ = ObserveTimedOutExecutionAsync(executionTask, executeCancellation);
                     ClearTimedOutActive(query, stopwatch.ElapsedMilliseconds);
+                    executeCancellation = null;
                     return;
                 }
             }
@@ -235,14 +236,38 @@ namespace AIBridgeCodeIndex
             }
             finally
             {
-                executeCancellation.Dispose();
+                if (executeCancellation != null)
+                {
+                    executeCancellation.Dispose();
+                }
             }
 
             CompleteQuery(query, response, stopwatch.ElapsedMilliseconds, executionTimedOut, clearActive: true);
         }
 
+        private static async Task ObserveTimedOutExecutionAsync(
+            Task<CodeIndexResponse> executionTask,
+            CancellationTokenSource executeCancellation)
+        {
+            try
+            {
+                await executionTask;
+            }
+            catch
+            {
+            }
+            finally
+            {
+                if (executeCancellation != null)
+                {
+                    executeCancellation.Dispose();
+                }
+            }
+        }
+
         private void CompleteQuery(ScheduledQuery query, CodeIndexResponse response, long executionMs, bool timedOut, bool clearActive)
         {
+            List<ScheduledQuery> duplicates;
             lock (_sync)
             {
                 _lastExecutionMs = executionMs;
@@ -259,6 +284,8 @@ namespace AIBridgeCodeIndex
                 {
                     _active = null;
                 }
+
+                duplicates = ReleaseInFlight(query);
             }
 
             if (!timedOut)
@@ -268,6 +295,7 @@ namespace AIBridgeCodeIndex
 
             DecorateResponse(query, response, executionMs);
             query.Completion.TrySetResult(response);
+            CompleteDuplicates(duplicates, response, executionMs);
             NotifyStatusChanged();
         }
 
@@ -310,7 +338,9 @@ namespace AIBridgeCodeIndex
             }
 
             DisposeQueueWaitRegistrations(query);
-            query.Completion.TrySetResult(BuildQueueFailure(query, errorCode, message));
+            var response = BuildQueueFailure(query, errorCode, message);
+            query.Completion.TrySetResult(response);
+            CompleteDuplicates(ReleaseInFlightForCancellation(query), response, 0);
             NotifyStatusChanged();
         }
 
@@ -331,7 +361,9 @@ namespace AIBridgeCodeIndex
             {
                 var query = queued[i];
                 DisposeQueueWaitRegistrations(query);
-                query.Completion.TrySetResult(BuildQueueFailure(query, "client_cancelled", "Code index daemon is stopping."));
+                var response = BuildQueueFailure(query, "client_cancelled", "Code index daemon is stopping.");
+                query.Completion.TrySetResult(response);
+                CompleteDuplicates(ReleaseInFlightForCancellation(query), response, 0);
             }
 
             NotifyStatusChanged();
@@ -381,10 +413,10 @@ namespace AIBridgeCodeIndex
                 return false;
             }
 
+            query.CacheKey = BuildCacheKey(query.Request);
             EnsureCacheGeneration(query.Request.generationHash);
-            var key = BuildCacheKey(query.Request);
             QueryCacheEntry entry;
-            if (!_queryCache.TryGetValue(key, out entry))
+            if (!_queryCache.TryGetValue(query.CacheKey, out entry))
             {
                 _queryCacheMisses++;
                 return false;
@@ -392,7 +424,7 @@ namespace AIBridgeCodeIndex
 
             if ((DateTimeOffset.UtcNow - entry.StoredAtUtc).TotalMilliseconds > QueryCacheTtlMs)
             {
-                _queryCache.Remove(key);
+                _queryCache.Remove(query.CacheKey);
                 _queryCacheMisses++;
                 return false;
             }
@@ -403,6 +435,79 @@ namespace AIBridgeCodeIndex
             response.cacheHit = true;
             DecorateResponse(query, response, 0);
             return true;
+        }
+
+        private bool TryAttachDuplicate(ScheduledQuery query)
+        {
+            if (string.IsNullOrWhiteSpace(query.CacheKey))
+            {
+                return false;
+            }
+
+            ScheduledQuery owner;
+            if (!_inFlight.TryGetValue(query.CacheKey, out owner) || owner == null)
+            {
+                return false;
+            }
+
+            if (owner.Duplicates == null)
+            {
+                owner.Duplicates = new List<ScheduledQuery>();
+            }
+
+            owner.Duplicates.Add(query);
+            _totalDeduplicated++;
+            return true;
+        }
+
+        private void TrackInFlight(ScheduledQuery query)
+        {
+            if (!string.IsNullOrWhiteSpace(query.CacheKey))
+            {
+                _inFlight[query.CacheKey] = query;
+            }
+        }
+
+        private List<ScheduledQuery> ReleaseInFlight(ScheduledQuery query)
+        {
+            if (query == null || string.IsNullOrWhiteSpace(query.CacheKey))
+            {
+                return null;
+            }
+
+            ScheduledQuery owner;
+            if (_inFlight.TryGetValue(query.CacheKey, out owner) && ReferenceEquals(owner, query))
+            {
+                _inFlight.Remove(query.CacheKey);
+            }
+
+            var duplicates = query.Duplicates;
+            query.Duplicates = null;
+            return duplicates;
+        }
+
+        private List<ScheduledQuery> ReleaseInFlightForCancellation(ScheduledQuery query)
+        {
+            lock (_sync)
+            {
+                return ReleaseInFlight(query);
+            }
+        }
+
+        private void CompleteDuplicates(List<ScheduledQuery> duplicates, CodeIndexResponse response, long executionMs)
+        {
+            if (duplicates == null || duplicates.Count == 0)
+            {
+                return;
+            }
+
+            for (var i = 0; i < duplicates.Count; i++)
+            {
+                var duplicate = duplicates[i];
+                var duplicateResponse = CloneResponse(response);
+                DecorateResponse(duplicate, duplicateResponse, executionMs);
+                duplicate.Completion.TrySetResult(duplicateResponse);
+            }
         }
 
         private void StoreCachedResponse(ScheduledQuery query, CodeIndexResponse response)
@@ -551,6 +656,8 @@ namespace AIBridgeCodeIndex
             public CancellationTokenRegistration QueueTimeoutRegistration { get; set; }
             public bool Started { get; set; }
             public string ActiveStartedAt { get; set; }
+            public string CacheKey { get; set; }
+            public List<ScheduledQuery> Duplicates { get; set; }
         }
 
         private sealed class QueryCacheEntry

@@ -177,7 +177,6 @@ namespace AIBridgeCodeIndex
     {
         public string action { get; set; }
         public Dictionary<string, object> parameters { get; set; }
-        public int executeTimeoutMs { get; set; }
     }
 
     internal sealed class CodeIndexBatchResponseItem

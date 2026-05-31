@@ -162,7 +162,7 @@ namespace AIBridgeCodeIndex
                 case "diagnostics":
                     return await QueryDiagnosticsAsync(parameters);
                 default:
-                    return BuildResponse("Unsupported code_index action: " + action);
+                    return BuildErrorResponse("Unsupported code_index action: " + action, "unsupported_action");
             }
         }
 
@@ -2070,6 +2070,15 @@ namespace AIBridgeCodeIndex
             {
                 items = items,
                 warning = string.IsNullOrWhiteSpace(warning) ? BuildWorkspaceWarning() : warning
+            };
+        }
+
+        private static CodeIndexResponse BuildErrorResponse(string error, string errorCode)
+        {
+            return new CodeIndexResponse
+            {
+                error = error,
+                errorCode = errorCode
             };
         }
 

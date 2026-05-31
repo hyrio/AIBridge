@@ -342,6 +342,13 @@ namespace AIBridgeCodeIndex
                 return BuildFailure(status, "Missing action.", "missing_action");
             }
 
+            query.action = query.action.Trim().ToLowerInvariant();
+            if (!string.Equals(query.action, "batch", StringComparison.OrdinalIgnoreCase)
+                && !IsSupportedQueryAction(query.action))
+            {
+                return BuildFailure(status, "Unsupported code_index action: " + query.action, "unsupported_action");
+            }
+
             if (!string.Equals(status.state, "ready", StringComparison.OrdinalIgnoreCase))
             {
                 return BuildFailure(status, "Unity snapshot workspace is not ready. Current state: " + status.state, "workspace_not_ready");
@@ -455,11 +462,26 @@ namespace AIBridgeCodeIndex
                 return BuildBatchFailure(index, action, "Nested code_index batch requests are not supported.", "nested_batch", 0);
             }
 
+            if (!IsSupportedQueryAction(action))
+            {
+                return BuildBatchFailure(index, action, "Unsupported code_index action: " + action, "unsupported_action", 0);
+            }
+
             var stopwatch = Stopwatch.StartNew();
             try
             {
                 var response = await workspace.QueryAsync(action, item.parameters);
                 cancellationToken.ThrowIfCancellationRequested();
+                if (response == null || !string.IsNullOrWhiteSpace(response.error))
+                {
+                    return BuildBatchFailure(
+                        index,
+                        action,
+                        response == null ? "Code index query returned an empty response." : response.error,
+                        response == null || string.IsNullOrWhiteSpace(response.errorCode) ? "execute_failed" : response.errorCode,
+                        stopwatch.ElapsedMilliseconds);
+                }
+
                 return new CodeIndexBatchResponseItem
                 {
                     index = index,
@@ -476,6 +498,23 @@ namespace AIBridgeCodeIndex
             catch (Exception ex)
             {
                 return BuildBatchFailure(index, action, ex.Message, "execute_failed", stopwatch.ElapsedMilliseconds);
+            }
+        }
+
+        private static bool IsSupportedQueryAction(string action)
+        {
+            switch ((action ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "symbol":
+                case "definition":
+                case "references":
+                case "implementations":
+                case "derived":
+                case "callers":
+                case "diagnostics":
+                    return true;
+                default:
+                    return false;
             }
         }
 
