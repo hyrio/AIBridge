@@ -20,6 +20,7 @@ $CLI editor log --message "Hello" --logType Warning
 - {{CSHARP_VERSION_RULE}}
 
 **{{CAPABILITIES_TITLE}}**:
+- {{HARNESS_CAPABILITY_RULE}}
 - {{CODE_INDEX_CAPABILITY_RULE}}
 
 **{{ROUTING_TITLE}}**:

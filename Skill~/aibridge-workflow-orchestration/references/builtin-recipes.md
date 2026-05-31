@@ -71,3 +71,12 @@ Use when the failure source is vague and the workflow needs iterative evidence, 
 - CLI steps: `get_logs`, `compile unity`, and optional tests/runtime evidence.
 - Gates: optional `externalVerdict allow=confirmed`, `unityCompile`, `consoleErrors max=0`, optional `testRun`.
 - Boundary: implement only one confirmed high-value fix per iteration; do not edit based on weak evidence.
+
+## harness-readiness-check
+
+Use before a long workflow, first-time assistant integration, or suspected harness mismatch.
+
+- Phases: locate integration, probe deterministic CLI/workflow capability, record optional Unity/Code Index/Runtime readiness, report.
+- CLI steps: `harness status`, `workflow list`, `workflow validate --recipe unity-change-implementation`, `workflow validate --recipe runtime-debug-investigation`.
+- Outputs: `CommandEvidence`, `EvidenceRef`, `ValidationResult`, `ArtifactRef`.
+- Boundary: optional Unity, Code Index, Runtime, and sub-agent probes are external or manual checks. A missing Runtime target is a capability gap, not proof of game failure.

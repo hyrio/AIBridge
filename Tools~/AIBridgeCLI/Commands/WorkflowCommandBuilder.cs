@@ -58,7 +58,8 @@ namespace AIBridgeCLI.Commands
             {
                 new ParameterInfo("run", "Workflow run id. Defaults to active run or AIBRIDGE_WORKFLOW_RUN_ID", false),
                 new ParameterInfo("status", "Final status: passed, partial, failed, blocked, canceled", false, "passed"),
-                new ParameterInfo("allow-partial", "Treat partial workflow status as CLI success", false, "false")
+                new ParameterInfo("allow-partial", "Treat partial workflow status as CLI success", false, "false"),
+                new ParameterInfo("detail", "Output detail: compact, full", false, "compact")
             },
             ["run-cli"] = new List<ParameterInfo>
             {
@@ -68,13 +69,14 @@ namespace AIBridgeCLI.Commands
                 new ParameterInfo("resume", "Existing run id to resume", false),
                 new ParameterInfo("rerun", "Rerun mode, e.g. failed", false),
                 new ParameterInfo("timeout", "Per-step CLI command timeout in milliseconds", false, "5000"),
-                new ParameterInfo("allow-partial", "Treat partial workflow status as CLI success", false, "false")
+                new ParameterInfo("allow-partial", "Treat partial workflow status as CLI success", false, "false"),
+                new ParameterInfo("detail", "Output detail: compact, full", false, "compact")
             },
             ["import"] = new List<ParameterInfo>
             {
                 new ParameterInfo("run", "Workflow run id. Defaults to active run or AIBRIDGE_WORKFLOW_RUN_ID", false),
                 new ParameterInfo("step", "Source workflow step id", false),
-                new ParameterInfo("schema", "Imported schema: Verdict, Finding, PatchProposal, ValidationResult", false, "Verdict"),
+                new ParameterInfo("schema", "Imported schema: Verdict, Finding, PatchProposal, ValidationResult, EvidenceRef, CommandEvidence", false, "Verdict"),
                 new ParameterInfo("kind", "Artifact kind override, e.g. verdict, finding, patch-proposal", false),
                 new ParameterInfo("file", "JSON file to import", true)
             },
@@ -88,12 +90,14 @@ namespace AIBridgeCLI.Commands
             },
             ["status"] = new List<ParameterInfo>
             {
-                new ParameterInfo("run", "Workflow run id", true)
+                new ParameterInfo("run", "Workflow run id", true),
+                new ParameterInfo("detail", "Output detail: compact, full", false, "compact")
             },
             ["report"] = new List<ParameterInfo>
             {
                 new ParameterInfo("run", "Workflow run id", true),
-                new ParameterInfo("format", "Output format: json, markdown", false, "json")
+                new ParameterInfo("format", "Output format: json, markdown", false, "json"),
+                new ParameterInfo("detail", "Output detail for json: compact, full", false, "compact")
             },
             ["clean"] = new List<ParameterInfo>
             {

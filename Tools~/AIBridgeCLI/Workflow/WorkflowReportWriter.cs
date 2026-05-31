@@ -71,6 +71,11 @@ namespace AIBridgeCLI.Workflow
             foreach (var artifact in manifest.ArtifactRefs)
             {
                 var kind = artifact.Kind;
+                if (!string.IsNullOrWhiteSpace(artifact.SemanticKind))
+                {
+                    kind += "/" + artifact.SemanticKind;
+                }
+
                 if (!string.IsNullOrWhiteSpace(artifact.Schema))
                 {
                     kind += "/" + artifact.Schema;

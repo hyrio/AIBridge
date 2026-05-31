@@ -22,4 +22,6 @@ Do not use it for routine single-file edits, simple CLI command lookup, or ordin
 
 - Read `references/orchestration-patterns.md` before selecting parallel, pipeline, barrier, adversarial, or Runtime sweep patterns.
 - Read `references/recipe-schema.md` before writing or reviewing a workflow recipe document.
+- Read `references/evidence-schema.md` when defining or importing structured external results.
 - Read `references/builtin-recipes.md` before drafting common Unity implementation, review, Runtime validation, Prefab sweep, or bug-hunter workflows.
+- For cross-turn, resumed, or external-agent work, follow the active-run, evidence schema, and import rules in `references/orchestration-patterns.md` and `references/recipe-schema.md`.

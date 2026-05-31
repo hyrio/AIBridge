@@ -117,6 +117,12 @@ namespace AIBridgeCLI
                 return WorkflowCommand.Execute(parsed.Action, parsed.Options, timeout, outputMode);
             }
 
+            // Handle harness command (CLI-only capability snapshot and readiness status)
+            if (parsed.CommandType.Equals("harness", StringComparison.OrdinalIgnoreCase))
+            {
+                return HarnessCommand.Execute(parsed.Action, parsed.Options, outputMode);
+            }
+
             // Handle compile dotnet command (CLI-only, no Unity communication needed)
             if (parsed.CommandType.Equals("compile", StringComparison.OrdinalIgnoreCase)
                 && parsed.Action?.Equals("dotnet", StringComparison.OrdinalIgnoreCase) == true)

@@ -14,6 +14,20 @@ Purpose: choose safe workflow structure for AIBridge tasks that need more than a
 
 Current workflow CLI support covers recipe list/validate/plan/init, active run begin/attach/finish, deterministic `run-cli` steps, ordinary-command artifact attach, external result import, adapter export, gates, and reports. It is not a cross-tool agent runtime; `agent` and `manual` steps still require an external executor.
 
+## Harness Responsibility
+
+Use this split when a recipe leaves AIBridge CLI:
+
+| Step kind | Executed by `workflow run-cli` | Responsible executor | Required handoff |
+|---|---:|---|---|
+| `cli` | Yes | AIBridge CLI | Command result and artifacts are attached automatically |
+| `barrier` | Yes, as lightweight pass | AIBridge CLI or main agent | Merge result when a real merge decision is needed |
+| `report` | Yes, as lightweight pass | AIBridge CLI or main agent | Final report should reference artifacts and gates |
+| `agent` | No | Current AI harness or exported task pack executor | Import `Finding`, `Verdict`, `PatchProposal`, `ValidationResult`, `EvidenceRef`, or `CommandEvidence` |
+| `manual` | No | Main agent or human operator | Import the structured result or mark the gap explicitly |
+
+If the harness cannot create sub-agents or run external steps, keep execution single-agent and treat those steps as manual work owned by the main agent. Do not imply AIBridge has completed skipped `agent` or `manual` steps.
+
 ## Pattern Selection
 
 Use parallel when:
@@ -51,18 +65,16 @@ Use a single linear `batch` / `multi` script when:
 
 ## Structured Outputs
 
-Use structured outputs for intermediate data. Keep prose for the final human report.
-
-Recommended fields:
-
-- `Finding`: `id`, `severity`, `file`, `line`, `claim`, `evidence`, `repro`, `confidence`.
-- `Verdict`: `claimId`, `status`, `evidence`, `reason`, `remainingRisk`.
-- `PatchProposal`: `id`, `files`, `summary`, `risk`, `validation`.
-- `ValidationResult`: `gate`, `status`, `command`, `evidence`, `artifacts`.
-- `ArtifactRef`: `kind`, `path`, `summary`, `sourceCommand`.
-- `RuntimeTargetRef`: `targetId`, `url`, `platform`, `status`, `evidence`.
+Use structured outputs for intermediate data and prose for the final human report. Read `evidence-schema.md` for `Finding`, `Verdict`, `PatchProposal`, `ValidationResult`, `EvidenceRef`, `CommandEvidence`, `ArtifactRef`, and `RuntimeTargetRef` fields.
 
 Large outputs should be saved as artifacts and referenced by path or id instead of pasted into the main context.
+
+## Resume And Active Runs
+
+- For a resumed workflow task, check `workflow status --run <runId>` or the active run before continuing.
+- Use existing artifact ids and gate status to decide the next missing step; do not repeat expensive collection unless evidence is stale or incomplete.
+- Re-collect logs, screenshots, Runtime status, or perf samples when the target state may have changed.
+- Before `workflow finish --status passed`, refresh gates/report and ensure required gates are not missing, failed, or blocked.
 
 ## Adversarial Verification
 

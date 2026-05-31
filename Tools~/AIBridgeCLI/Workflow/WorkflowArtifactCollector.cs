@@ -24,14 +24,9 @@ namespace AIBridgeCLI.Workflow
             string commandResultPath)
         {
             var artifacts = new List<WorkflowArtifactRef>();
-            var commandArtifact = CreateCommandResultArtifact(command, execution, commandResultPath);
-            artifacts.Add(commandArtifact);
-
             var semanticKind = DetectSemanticKind(command);
-            if (!string.Equals(semanticKind, "command-result", StringComparison.OrdinalIgnoreCase))
-            {
-                artifacts.Add(CreateReferenceArtifact(semanticKind, command, execution, commandResultPath));
-            }
+            var commandArtifact = CreateCommandResultArtifact(command, execution, commandResultPath, semanticKind);
+            artifacts.Add(commandArtifact);
 
             var fileArtifacts = CollectFileArtifacts(command, execution);
             artifacts.AddRange(fileArtifacts);
@@ -47,38 +42,22 @@ namespace AIBridgeCLI.Workflow
         private WorkflowArtifactRef CreateCommandResultArtifact(
             string command,
             WorkflowCommandExecution execution,
-            string commandResultPath)
+            string commandResultPath,
+            string semanticKind)
         {
             var artifactId = CreateArtifactId("command-result", execution.CommandId, 0);
             return new WorkflowArtifactRef
             {
                 ArtifactId = artifactId,
                 Kind = "command-result",
+                SemanticKind = string.Equals(semanticKind, "command-result", StringComparison.OrdinalIgnoreCase) ? null : semanticKind,
                 Path = WorkflowPathHelper.ToDisplayPath(commandResultPath),
                 SourceCommand = command,
                 SourceCommandId = execution.CommandId,
                 ContentType = "application/json",
-                Summary = "Archived raw CLI command result.",
-                Copied = true,
-                CreatedAtUtc = DateTime.UtcNow.ToString("o")
-            };
-        }
-
-        private WorkflowArtifactRef CreateReferenceArtifact(
-            string kind,
-            string command,
-            WorkflowCommandExecution execution,
-            string commandResultPath)
-        {
-            return new WorkflowArtifactRef
-            {
-                ArtifactId = CreateArtifactId(kind, execution.CommandId, 0),
-                Kind = kind,
-                Path = WorkflowPathHelper.ToDisplayPath(commandResultPath),
-                SourceCommand = command,
-                SourceCommandId = execution.CommandId,
-                ContentType = "application/json",
-                Summary = "Evidence extracted from CLI result for " + kind + ".",
+                Summary = string.Equals(semanticKind, "command-result", StringComparison.OrdinalIgnoreCase)
+                    ? "Archived raw CLI command result."
+                    : "Archived raw CLI command result for " + semanticKind + ".",
                 Copied = true,
                 CreatedAtUtc = DateTime.UtcNow.ToString("o")
             };
@@ -266,6 +245,11 @@ namespace AIBridgeCLI.Workflow
             if (normalized.StartsWith("code_index"))
             {
                 return "code-index-result";
+            }
+
+            if (normalized.StartsWith("harness status"))
+            {
+                return "evidence";
             }
 
             if (normalized.StartsWith("test run") || normalized.StartsWith("test status"))

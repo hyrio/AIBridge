@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "name": "harness-readiness-check",
+  "title": "Harness Readiness Check",
+  "description": "Probe the current AI harness, AIBridge CLI, workflow support, and optional Unity/Runtime capabilities before a long or delegated workflow.",
+  "version": "1.0.0",
+  "inputs": {
+    "taskKind": {
+      "description": "implementation, review, debug, validation, runtime, or workflow.",
+      "default": "workflow"
+    },
+    "requiresUnity": {
+      "description": "Whether this task needs Unity compile, logs, assets, scenes, prefabs, or Inspector access.",
+      "default": false
+    },
+    "requiresRuntime": {
+      "description": "Whether this task needs Runtime, Player, Play Mode, input, screenshot, perf, or handler evidence.",
+      "default": false
+    },
+    "requiresCodeIndex": {
+      "description": "Whether this task needs semantic C# symbol/source navigation.",
+      "default": false
+    }
+  },
+  "phases": [
+    {
+      "id": "locate-integration",
+      "type": "serial",
+      "description": "Record harness rule files, Skill root, CLI path, and whether external agent/manual steps can run.",
+      "steps": [
+        {
+          "id": "record-harness-context",
+          "kind": "manual",
+          "role": "main-agent",
+          "description": "Return EvidenceRef[] for RootRule, Skill root, CLI path, and external executor availability.",
+          "outputs": [
+            "EvidenceRef",
+            "ValidationResult"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "probe-workflow-cli",
+      "type": "serial",
+      "description": "Run deterministic workflow CLI checks that do not require Unity Editor or Runtime targets.",
+      "dependsOn": [
+        "locate-integration"
+      ],
+      "steps": [
+        {
+          "id": "harness-status",
+          "kind": "cli",
+          "description": "Read the Unity-generated harness capability snapshot.",
+          "command": "harness status",
+          "outputs": [
+            "CommandEvidence",
+            "EvidenceRef",
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "workflow-list",
+          "kind": "cli",
+          "description": "List available workflow recipes.",
+          "command": "workflow list",
+          "outputs": [
+            "CommandEvidence",
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "validate-implementation-recipe",
+          "kind": "cli",
+          "description": "Validate the implementation recipe template.",
+          "command": "workflow validate --recipe unity-change-implementation",
+          "outputs": [
+            "CommandEvidence",
+            "ValidationResult"
+          ]
+        },
+        {
+          "id": "validate-debug-recipe",
+          "kind": "cli",
+          "description": "Validate the Runtime debug recipe template.",
+          "command": "workflow validate --recipe runtime-debug-investigation",
+          "outputs": [
+            "CommandEvidence",
+            "ValidationResult"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "optional-capability-probes",
+      "type": "serial",
+      "description": "Probe Unity, Code Index, Runtime, or sub-agent capability only when the task requires them.",
+      "dependsOn": [
+        "probe-workflow-cli"
+      ],
+      "steps": [
+        {
+          "id": "record-optional-capabilities",
+          "kind": "manual",
+          "role": "main-agent",
+          "description": "When required by inputs, run compile unity, get_logs, code_index status, runtime list_targets, or harness sub-agent checks and import CommandEvidence/EvidenceRef.",
+          "outputs": [
+            "CommandEvidence",
+            "EvidenceRef",
+            "ValidationResult"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "type": "report",
+      "description": "Write the readiness matrix, fallback path, blocked capabilities, and next workflow recommendation.",
+      "dependsOn": [
+        "optional-capability-probes"
+      ],
+      "steps": [
+        {
+          "id": "write-readiness-report",
+          "kind": "report",
+          "description": "Generate a compact readiness report with available, degraded, unavailable, unknown, and not-needed states.",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        }
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "workflow-cli-evidence",
+      "kind": "artifactRequired",
+      "required": true,
+      "artifactKind": "command-result",
+      "min": 1
+    },
+    {
+      "id": "harness-context-evidence",
+      "kind": "artifactRequired",
+      "required": false,
+      "artifactKind": "evidence",
+      "schema": "EvidenceRef",
+      "stepId": "record-harness-context",
+      "min": 1
+    }
+  ],
+  "artifacts": [
+    {
+      "kind": "command-result",
+      "description": "Workflow CLI probe results.",
+      "required": true
+    },
+    {
+      "kind": "evidence",
+      "description": "Harness and optional capability evidence imported from the main agent or external executor.",
+      "required": false
+    },
+    {
+      "kind": "workflow-report",
+      "description": "Readiness matrix and recommended fallback path.",
+      "required": true
+    }
+  ]
+}

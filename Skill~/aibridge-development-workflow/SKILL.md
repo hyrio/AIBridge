@@ -1,161 +1,73 @@
 ---
 name: aibridge-development-workflow
-description: "AIBridge/Unity 项目的多分支工作流入口。Use when creating, modifying, fixing, refactoring, diagnosing, debugging, reviewing, or validating C# code, Unity assets, prefabs, editor tools, package structure, tests, AGENTS.md, local Skills, Runtime behavior, logs, or workflow recipes. Routes tasks into implementation, debug investigation, review, validation, or orchestration branches. Do not use for pure Q&A, simple search/display, or code explanation tasks with no file/code/asset/runtime investigation."
+description: "AIBridge/Unity 多分支开发工作流入口。Use when creating, modifying, fixing, debugging, reviewing, or validating C# code, Unity assets, Prefabs, Editor tools, package structure, tests, Skills, Runtime behavior, logs, or workflow recipes. Do not use for pure Q&A or simple code explanation with no investigation."
 ---
 
 # AIBridge Development Workflow
 
 ## 目标
 
-作为 AIBridge/Unity 任务的兼容入口，先完成 Skill 匹配和任务分流，再进入对应分支，最后执行该分支的检查清单。
+作为 AIBridge/Unity 任务入口，完成 Skill 匹配、Harness 能力探测、任务分流、风险判断、执行和收尾验证。各阶段默认内部执行；只有能力降级、风险确认、验证失败或用户要求时，才把阶段状态展开给用户。
 
-本 Skill 只放主流程。细节规则按需读取：
+## 按需读取
 
-- `references/branch-selection.md`：任务分流规则、各分支触发条件和交接边界。
-- `references/risk-gates.md`：需求确认、风险分级、何时必须暂停确认。
+- `references/branch-selection.md`：任务分流规则、触发条件和交接边界。
+- `references/harness-readiness.md`：Harness 能力探测模式、snapshot、fallback、resume、证据回传。
+- `references/risk-gates.md`：需求确认、风险分级、必须暂停确认的场景。
 - `references/coding-rules.md`：C#、Unity、注释、硬编码、重复代码规则。
-- `references/editor-generation.md`：复杂生成、分析、诊断、Runtime/Public API 调用等一次性 Editor C# 脚本规范。
-- `references/checklist.md`：实施分支最终检查清单和收尾输出格式。
-- `references/debug-investigation-workflow.md`：调试诊断分支流程、证据规则、Runtime 追踪和结论格式。
+- `references/editor-generation.md`：复杂一次性 Editor C# 脚本规范。
+- `references/checklist.md`：实施分支最终检查清单。
+- `references/debug-investigation-workflow.md`：调试诊断分支流程和证据规则。
 - `references/debug-investigation-checklist.md`：调试诊断分支检查清单。
 
-## 阶段总览
-
-任务按以下模式推进：
-
-`【Skills 匹配模式】 → 【任务分流模式】 → 【需求确认模式】 → 【分支执行模式】 → 【分支检查清单模式】`
-
-简单低风险任务可以在一条回复中连续展示多个模式，但不能省略分流判断、必要分析和最终检查清单。
-
-## Skills 匹配模式
-
-收到任务后，先输出实际使用的 Skills，仅列名称：
-
-```text
-【Skills 匹配模式】aibridge-development-workflow、aibridge
-```
-
-匹配规则：
+## Skill 匹配
 
 - 所有开发、调试、审查、验证或 workflow 任务至少包含 `aibridge-development-workflow`。
-- 涉及 AIBridge CLI、Unity 编译、日志、资源搜索、预制、场景或 Inspector 操作时，加入 `aibridge`。
-- 涉及问题排查、复现、Runtime/Player/Play Mode 状态、日志、截图、性能、输入路径、运行时 handler 或运行时调用分析时，加入 `aibridge`；需要多目标采集、对抗验证或 workflow recipe 时，再加入 `aibridge-workflow-orchestration`。
-- 涉及 C# 代码查找、源码导航、符号、定义、引用、实现、派生类型、调用者或诊断查询时，只有 `aibridge-code-index` 已安装且项目规则未声明 Code Index 关闭，才优先加入 `aibridge-code-index`；否则使用 `rg` 和常规文件读取。
-- 涉及字面量字符串、注释、配置、文件名、非 C# 代码、Unity 资源、Prefab 或 Scene 搜索时，使用 `rg`、文件读取或常规 AIBridge 命令，不使用 Code Index。
-- 涉及复杂 Prefab 资源修改、批量 SerializedProperty、子物体/组件创建或引用写入时，加入 `aibridge-prefab-patch`。
-- 涉及直接修改 Unity YAML 文本序列化文件（`.unity`、`.prefab`、`.asset`、`.mat`、`.controller` 等），或 AIBridge 不支持的 Prefab/Scene/ScriptableObjectTable 结构修改时，加入 `unity-yaml-editing`。
-- 涉及 batch、multi、批处理脚本、长脚本、stdin 或脚本自动化时，加入 `aibridge-batch-script`。
-- 涉及 Workflow recipe、多 Agent 编排、并行/流水线 Agent 分工、对抗验证、运行时多目标 sweep、结构化 workflow artifact 或 workflow 方案设计时，加入 `aibridge-workflow-orchestration`。
-- 涉及创建或修改 Skill 时，加入 `skill-creator`。
-- 涉及复杂一次性 Editor 侧 C# 任务时，读取 `references/editor-generation.md`，优先评估 `.aibridge/code/*.csx`；包括复杂资源首次生成、调用项目 Runtime/Public API、场景/资源统计、诊断报告或多步骤 UnityEditor API 编排。
+- 涉及 AIBridge CLI、Unity 编译、日志、资源、Prefab、场景或 Inspector 操作时，加入 `aibridge`。
+- 涉及 Runtime/Player/Play Mode、输入、截图、性能、handler 或运行时调用分析时，加入 `aibridge`；需要多目标采集、对抗验证或 recipe 时，再加入 `aibridge-workflow-orchestration`。
+- C# 代码查找、源码导航、符号、定义、引用、实现、派生类型、调用者或诊断查询：只有 `aibridge-code-index` 已安装且项目规则未关闭 Code Index 时，优先加入 `aibridge-code-index`；否则使用 `rg` 和常规文件读取。
+- 字面量字符串、注释、配置、文件名、非 C# 代码、Unity 资源、Prefab 或 Scene 搜索：使用 `rg`、文件读取或常规 AIBridge 命令，不使用 Code Index。
+- 复杂 Prefab 资源修改、批量 SerializedProperty、子物体/组件创建或引用写入：加入 `aibridge-prefab-patch`。
+- 直接修改 Unity YAML 文本序列化文件，或 AIBridge 不支持的 Prefab/Scene/ScriptableObjectTable 结构修改：加入 `unity-yaml-editing`。
+- batch、multi、长脚本、stdin 或脚本自动化：加入 `aibridge-batch-script`。
+- Workflow recipe、多 Agent 编排、并行/流水线分工、对抗验证、多目标 sweep、结构化 artifact 或 workflow 方案设计：加入 `aibridge-workflow-orchestration`。
+- 创建或修改 Skill：加入 `skill-creator`。
+- 复杂一次性 Editor 侧 C# 任务：读取 `references/editor-generation.md`，优先评估 `.aibridge/code/*.csx`。
 
-## 任务分流模式
+## Harness 能力探测模式
 
-读取 `references/branch-selection.md`，选择一个主分支；其它分支只能作为交接或验证补充。
+进入开发、调试、审查、验证或 workflow 任务前，读取 `references/harness-readiness.md` 的入口规则。优先使用 `.aibridge/harness/capabilities.json` 或 `$CLI harness status` 的 compact 结果；只有 snapshot 缺失、过期、无效，或任务需要未确认能力时，才补测任务必需能力。
 
-```text
-【任务分流模式】
-主分支：调试诊断分支
-理由：用户要求排查运行时问题并追踪日志/Runtime 证据，当前目标是诊断结论，不是立即修改代码。
-```
+不把静态检查、`dotnet build` 或推断说成 Unity 验证通过。`agent` / `manual` step 需要当前 harness、主 agent 或外部执行器完成，并用 `workflow import` 回传结构化结果。
 
-分支规则：
+## 任务分流
 
-- **实施分支**：创建、修改、修复、重构、迁移或生成代码/资源。继续使用实施分析、方案实施和 `references/checklist.md`。
-- **调试诊断分支**：排查问题、复现症状、追踪日志/Runtime/Player/Play Mode 信息、分析根因。读取 `references/debug-investigation-workflow.md` 和 `references/debug-investigation-checklist.md`。
-- **审查分支**：用户要求 review/audit/检查风险且未要求修改。只读优先，发现问题必须区分 confirmed/refuted/uncertain。
-- **验证分支**：用户只要求编译、日志、截图、Runtime/UI 验证或回归确认。选择与验收点匹配的 AIBridge 命令或 workflow recipe。
+读取 `references/branch-selection.md`，选择一个主分支；其它分支只作为交接或验证补充。
+
+- **实施分支**：创建、修改、修复、重构、迁移或生成代码/资源。完成后按 `references/checklist.md` 验证。
+- **调试诊断分支**：排查、复现、追踪日志/Runtime/Player/Play Mode、分析根因。读取调试 workflow 和 checklist。
+- **审查分支**：review/audit/检查风险且用户未要求修改。只读优先，结论区分 confirmed/refuted/uncertain。
+- **验证分支**：编译、日志、截图、Runtime/UI 验证或回归确认。选择匹配的 AIBridge 命令或 recipe。
 - **编排分支**：workflow recipe、多 Agent、并行 sweep、对抗验证或结构化 artifact。读取 `aibridge-workflow-orchestration` references。
 
-## 需求确认模式
+## 风险门控
 
-先判断是否需要用户确认。低风险且需求明确时，不阻塞实施：
-
-```text
-【需求确认模式】
-无需确认：需求明确，修改范围低风险，继续分析。
-```
-
-以下情况必须暂停并等待用户确认：
+低风险且目标明确时继续执行；以下情况先按 `references/risk-gates.md` 给方案并等待确认：
 
 - 需求目标、交互行为、数据来源或验收标准不明确。
-- 存在多个合理方案，且会影响公共 API、配置格式、资源结构或用户体验。
-- 可能破坏兼容性、迁移数据、修改大量 Prefab/场景对象、删除资源或引入新依赖。
-- 用户明确要求先给方案。
+- 多个合理方案会影响公共 API、配置格式、资源结构或用户体验。
+- 可能破坏兼容性、迁移数据、批量改 Prefab/场景、删除资源或引入新依赖。
+- 用户明确要求先分析、先给方案或不要直接改。
 
-不确定时读取 `references/risk-gates.md`。
+## 执行规则
 
-## 分支执行模式
-
-进入分支后，按分支规范收集上下文和执行任务。任何文件、代码或资源修改前必须先分析。优先使用直接工具收集上下文：
-
-- 用 `rg` / `rg --files` 搜索现有实现、工具类、命名模式和相邻代码。
+- 修改前用 `rg` / `rg --files` 搜索现有实现、工具类、命名模式和相邻代码。
 - 涉及 Unity 对象、Prefab、资源、Console 时，结合 `aibridge` 查询。
 - 涉及 Runtime/Player/Play Mode 调试时，先收集 target、日志、截图、性能、handler 或调用结果，再提出候选根因。
-- 涉及外部库或版本敏感信息时，只查官方文档。
-- 代理工具只有在用户明确要求或当前环境允许时才使用；不可伪造已启动代理。
+- 修改 C# 或 Unity 逻辑前读取 `references/coding-rules.md`。
+- 使用一次性 Editor 脚本前读取 `references/editor-generation.md`。
+- 使用多 Agent 编排前读取 `aibridge-workflow-orchestration/references/orchestration-patterns.md`。
 
-输出 2-3 句话的综合分析结果：
+## 收尾
 
-```text
-【分析模式】
-✅ 上下文收集：已通过 rg/AIBridge 查找现有实现和约束。
-✅ 综合分析：项目使用 X 模式，影响范围集中在 Y，主要风险是 Z。
-✅ 复杂度评估：常规问题，可以直接实施。
-✅ 实施门控：条件满足，进入方案实施。
-```
-
-### 实施分支
-
-实施前必须显示当前 Skills 和已加载的关键规范：
-
-```text
-【方案实施模式】
-当前匹配 Skills：aibridge-development-workflow、aibridge
-已加载规范：coding-rules、risk-gates
-规范已加载，开始实施方案。
-```
-
-实施要求：
-
-- 开发业务逻辑前，搜索现有工具类和相邻实现，避免重复造轮子。
-- 优先遵循项目现有命名、目录、序列化和命令风格。
-- 小步修改，每个子任务完成后做对应自测。
-- 复杂逻辑添加必要的简体中文注释。
-- 修改 C# 或 Unity 相关逻辑前读取 `references/coding-rules.md`。
-- 使用一次性 Editor 脚本处理复杂生成、分析、诊断或 Runtime/Public API 调用前读取 `references/editor-generation.md`。
-- 使用多 Agent 编排前，先读取 `aibridge-workflow-orchestration/references/orchestration-patterns.md`，明确并行读/串行写、结构化输出、artifact 和验证门。
-
-### 调试诊断分支
-
-调试诊断分支必须先证据后结论，禁止在未确认根因时直接修改代码或资源。需要修复时，把 confirmed 根因和证据交接到实施分支。
-
-常用证据：
-
-- Editor：`compile unity`、`get_logs --logType Error --count 100`、按需 Warning/regex 日志。
-- Runtime：`runtime list_targets`、`runtime status`、`runtime diagnose`、`runtime logs`、`runtime screenshot`、`runtime perf`、`runtime handlers`、`runtime call`。
-- 交互：`input`、`screenshot game`、`screenshot gif`、GameView/Runtime 截图。
-- 代码：C# 语义查询用 `aibridge-code-index`，字面量/配置/资源搜索用 `rg`。
-
-## 分支检查清单模式
-
-所有任务结束前必须进入分支检查清单模式，按主分支读取对应清单：
-
-- 实施分支：`references/checklist.md`
-- 调试诊断分支：`references/debug-investigation-checklist.md`
-- 编排分支：`aibridge-workflow-orchestration/references/orchestration-patterns.md` 中的 artifact/gate 规则
-
-输出必须包含通过、失败、已修复或不适用状态：
-
-```text
-【检查清单模式】
-1. AIBridge 编译检查 ✅
-2. Unity Console Error 检查 ✅
-3. C# 9.0 兼容性 ✅
-4. Unity 对象判空规范 ✅
-5. 不适用项：Prefab dry-run（本次未修改 Prefab）
-
-检查清单全部通过，任务完成。
-```
-
-如果检查无法执行，必须说明原因，不能假装通过。
+结束前按主分支执行对应检查清单。最终回复只报告实际执行的验证、失败/阻塞项、未验证原因和必要的关键改动；不要为了展示流程而输出完整模式表。

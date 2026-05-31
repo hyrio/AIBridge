@@ -255,6 +255,9 @@ namespace AIBridgeCLI.Workflow
         [JsonProperty("kind")]
         public string Kind { get; set; }
 
+        [JsonProperty("semanticKind")]
+        public string SemanticKind { get; set; }
+
         [JsonProperty("path")]
         public string Path { get; set; }
 
@@ -374,6 +377,57 @@ namespace AIBridgeCLI.Workflow
 
         [JsonProperty("artifactId")]
         public string ArtifactId { get; set; }
+    }
+
+    public class WorkflowEvidenceRef
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("kind")]
+        public string Kind { get; set; }
+
+        [JsonProperty("summary")]
+        public string Summary { get; set; }
+
+        [JsonProperty("artifactPath")]
+        public string ArtifactPath { get; set; }
+
+        [JsonProperty("sourceCommand")]
+        public string SourceCommand { get; set; }
+
+        [JsonProperty("targetId")]
+        public string TargetId { get; set; }
+
+        [JsonProperty("createdAtUtc")]
+        public string CreatedAtUtc { get; set; }
+    }
+
+    public class WorkflowCommandEvidence
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("command")]
+        public string Command { get; set; }
+
+        [JsonProperty("status")]
+        public string Status { get; set; }
+
+        [JsonProperty("exitCode")]
+        public int? ExitCode { get; set; }
+
+        [JsonProperty("summary")]
+        public string Summary { get; set; }
+
+        [JsonProperty("artifactIds")]
+        public List<string> ArtifactIds { get; set; } = new List<string>();
+
+        [JsonProperty("startedAtUtc")]
+        public string StartedAtUtc { get; set; }
+
+        [JsonProperty("endedAtUtc")]
+        public string EndedAtUtc { get; set; }
     }
 
     public class WorkflowFinding

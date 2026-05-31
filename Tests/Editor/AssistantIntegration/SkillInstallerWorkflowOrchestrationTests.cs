@@ -36,5 +36,22 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("Workflow recipe", workflowSkill);
             StringAssert.Contains("多 Agent 编排前", workflowSkill);
         }
+
+        [Test]
+        public void DevelopmentWorkflowInstallsHarnessReadinessReference()
+        {
+            var target = AssistantIntegrationRegistry.GetTargets().First(item => item.Id == "codex");
+
+            SkillInstaller.InstallAssistantIntegrations(ProjectRoot, new[] { target });
+
+            var readinessPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "references", "harness-readiness.md");
+            Assert.IsTrue(File.Exists(readinessPath));
+
+            var readiness = File.ReadAllText(readinessPath);
+            StringAssert.Contains("Fallback 规则", readiness);
+            StringAssert.Contains("Resume 规则", readiness);
+            StringAssert.Contains("EvidenceRef", readiness);
+            StringAssert.Contains("CommandEvidence", readiness);
+        }
     }
 }
