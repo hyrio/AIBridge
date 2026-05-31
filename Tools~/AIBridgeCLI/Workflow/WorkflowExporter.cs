@@ -83,6 +83,8 @@ namespace AIBridgeCLI.Workflow
             sb.AppendLine("- Use AIBridge CLI commands as evidence producers.");
             sb.AppendLine("- Treat `agent` and `manual` steps as external work; write structured output files and import them with `workflow import`.");
             sb.AppendLine("- Reference large logs, screenshots, and reports by artifact id or path; do not paste large payloads into the task context.");
+            sb.AppendLine("- Before resuming an existing run, inspect `workflow status --run <runId>` and continue from missing gates or skipped external steps.");
+            sb.AppendLine("- Do not treat `skipped_requires_external_executor` as completed work; the current harness, main agent, or human operator must execute and import those results.");
             sb.AppendLine();
             sb.AppendLine("## Inputs");
             sb.AppendLine();
@@ -142,6 +144,14 @@ namespace AIBridgeCLI.Workflow
                     ["ValidationResult"] = new JObject
                     {
                         ["required"] = new JArray("gate", "status", "evidence")
+                    },
+                    ["EvidenceRef"] = new JObject
+                    {
+                        ["required"] = new JArray("id", "kind", "summary")
+                    },
+                    ["CommandEvidence"] = new JObject
+                    {
+                        ["required"] = new JArray("id", "command", "status", "summary")
                     }
                 }
             };
@@ -193,6 +203,16 @@ namespace AIBridgeCLI.Workflow
             if (string.Equals(output, "ValidationResult", StringComparison.OrdinalIgnoreCase))
             {
                 return new ImportExample("ValidationResult", "validation-report", "validation-results.json");
+            }
+
+            if (string.Equals(output, "EvidenceRef", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ImportExample("EvidenceRef", "evidence", "evidence-refs.json");
+            }
+
+            if (string.Equals(output, "CommandEvidence", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ImportExample("CommandEvidence", "command-evidence", "command-evidence.json");
             }
 
             return null;

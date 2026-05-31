@@ -35,8 +35,9 @@ namespace AIBridge.Editor.Tests
                 Assert.IsFalse(result.success, finish.Stdout);
                 Assert.IsNotNull(result.data, finish.Stdout);
                 Assert.AreEqual("blocked", result.data.status, finish.Stdout);
-                AssertRequiredGateStatus(result.data.manifest, "unity-compile", "skipped");
-                AssertRequiredGateStatus(result.data.manifest, "console-errors", "skipped");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(result.data.manifestPath), finish.Stdout);
+                AssertRequiredGateStatus(result.data.gateResults, "unity-compile", "skipped");
+                AssertRequiredGateStatus(result.data.gateResults, "console-errors", "skipped");
             }
             finally
             {
@@ -71,7 +72,7 @@ namespace AIBridge.Editor.Tests
                 Assert.IsFalse(result.success, run.Stdout);
                 Assert.IsNotNull(result.data, run.Stdout);
                 Assert.AreEqual("blocked", result.data.status, run.Stdout);
-                AssertRequiredGateStatus(result.data.manifest, "console-errors", "blocked");
+                AssertRequiredGateStatus(result.data.gateResults, "console-errors", "blocked");
             }
             finally
             {
@@ -82,11 +83,10 @@ namespace AIBridge.Editor.Tests
             }
         }
 
-        private static void AssertRequiredGateStatus(WorkflowManifestView manifest, string gateId, string expectedStatus)
+        private static void AssertRequiredGateStatus(WorkflowGateResultView[] gateResults, string gateId, string expectedStatus)
         {
-            Assert.IsNotNull(manifest, "Manifest is missing.");
-            Assert.IsNotNull(manifest.gateResults, "Gate results are missing.");
-            foreach (var gate in manifest.gateResults)
+            Assert.IsNotNull(gateResults, "Gate results are missing.");
+            foreach (var gate in gateResults)
             {
                 if (!string.Equals(gate.gateId, gateId, StringComparison.OrdinalIgnoreCase))
                 {
@@ -248,12 +248,7 @@ namespace AIBridge.Editor.Tests
         private sealed class WorkflowDataView
         {
             public string status;
-            public WorkflowManifestView manifest;
-        }
-
-        [Serializable]
-        private sealed class WorkflowManifestView
-        {
+            public string manifestPath;
             public WorkflowGateResultView[] gateResults;
         }
 

@@ -15,9 +15,11 @@ namespace AIBridge.Editor.Tests
             "unity-change-implementation",
             "unity-sharded-review",
             "runtime-target-sweep",
+            "runtime-debug-investigation",
             "runtime-ui-validation",
             "prefab-asset-sweep",
-            "bug-hunter-loop"
+            "bug-hunter-loop",
+            "harness-readiness-check"
         };
 
         private static readonly HashSet<string> PhaseTypes = new HashSet<string>
@@ -74,12 +76,41 @@ namespace AIBridge.Editor.Tests
             var packageRoot = GetPackageRoot();
             var schema = File.ReadAllText(Path.Combine(packageRoot, "Skill~", "aibridge-workflow-orchestration", "references", "recipe-schema.md"));
             var recipes = File.ReadAllText(Path.Combine(packageRoot, "Skill~", "aibridge-workflow-orchestration", "references", "builtin-recipes.md"));
+            var evidenceSchema = File.ReadAllText(Path.Combine(packageRoot, "Skill~", "aibridge-workflow-orchestration", "references", "evidence-schema.md"));
 
             StringAssert.Contains("$CLI workflow validate", schema);
             StringAssert.Contains("skipped_requires_external_executor", schema);
             StringAssert.Contains("runtime-target-sweep", recipes);
+            StringAssert.Contains("runtime-debug-investigation", recipes);
             StringAssert.Contains("prefab-asset-sweep", recipes);
+            StringAssert.Contains("harness-readiness-check", recipes);
+            StringAssert.Contains("harness status", recipes);
+            StringAssert.Contains("EvidenceRef", schema);
+            StringAssert.Contains("CommandEvidence", schema);
+            StringAssert.Contains("EvidenceRef", evidenceSchema);
+            StringAssert.Contains("CommandEvidence", evidenceSchema);
+            StringAssert.Contains("workflow status --run", schema);
+            StringAssert.Contains("--detail full", schema);
             StringAssert.Contains("Never parallel-write", schema);
+        }
+
+        [Test]
+        public void WorkflowExporterAndImporterSupportHarnessEvidenceSchemas()
+        {
+            var packageRoot = GetPackageRoot();
+            var exporter = File.ReadAllText(Path.Combine(packageRoot, "Tools~", "AIBridgeCLI", "Workflow", "WorkflowExporter.cs"));
+            var importer = File.ReadAllText(Path.Combine(packageRoot, "Tools~", "AIBridgeCLI", "Workflow", "WorkflowExternalResultImporter.cs"));
+            var registry = File.ReadAllText(Path.Combine(packageRoot, "Tools~", "AIBridgeCLI", "Commands", "CommandRegistry.cs"));
+            var harnessCommand = File.ReadAllText(Path.Combine(packageRoot, "Tools~", "AIBridgeCLI", "Commands", "HarnessCommand.cs"));
+
+            StringAssert.Contains("EvidenceRef", exporter);
+            StringAssert.Contains("CommandEvidence", exporter);
+            StringAssert.Contains("skipped_requires_external_executor", exporter);
+            StringAssert.Contains("workflow status --run <runId>", exporter);
+            StringAssert.Contains("\"evidence\"", importer);
+            StringAssert.Contains("\"command-evidence\"", importer);
+            StringAssert.Contains("HarnessCommandBuilder", registry);
+            StringAssert.Contains("capabilities.json", harnessCommand);
         }
 
         private static void AssertRecipeShape(string file, string[] allowedNames)

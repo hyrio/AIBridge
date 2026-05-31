@@ -130,6 +130,17 @@ namespace AIBridgeCLI.Workflow
                 return "ValidationResult";
             }
 
+            if (string.Equals(kind, "evidence", StringComparison.OrdinalIgnoreCase))
+            {
+                return "EvidenceRef";
+            }
+
+            if (string.Equals(kind, "command-evidence", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(kind, "commandEvidence", StringComparison.OrdinalIgnoreCase))
+            {
+                return "CommandEvidence";
+            }
+
             return "Verdict";
         }
 
@@ -165,6 +176,16 @@ namespace AIBridgeCLI.Workflow
             if (string.Equals(schema, "ValidationResult", StringComparison.OrdinalIgnoreCase))
             {
                 return "validation-report";
+            }
+
+            if (string.Equals(schema, "EvidenceRef", StringComparison.OrdinalIgnoreCase))
+            {
+                return "evidence";
+            }
+
+            if (string.Equals(schema, "CommandEvidence", StringComparison.OrdinalIgnoreCase))
+            {
+                return "command-evidence";
             }
 
             return "verdict";

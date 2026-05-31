@@ -41,6 +41,7 @@ namespace AIBridgeCLI.Commands
             Register(new RuntimeCommandBuilder());
             Register(new CodeIndexCommandBuilder());
             Register(new WorkflowCommandBuilder());
+            Register(new HarnessCommandBuilder());
 
             _initialized = true;
         }

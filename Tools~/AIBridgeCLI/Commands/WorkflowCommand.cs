@@ -130,7 +130,7 @@ namespace AIBridgeCLI.Commands
 
         private static int ExecuteRunCli(Dictionary<string, string> options, int timeoutMs, OutputMode outputMode)
         {
-            var recipePath = GetFileOrRecipe(options);
+            var recipePath = GetFileOrRecipe(options, "Missing required option: --file or --recipe. workflow run-cli --resume <runId> still requires a recipe path or recipe name.");
             recipePath = WorkflowPathHelper.ResolveRecipePath(recipePath);
             var inputs = GetOption(options, "inputs", null);
             var resume = GetOption(options, "resume", null);
@@ -138,18 +138,13 @@ namespace AIBridgeCLI.Commands
             var allowPartial = GetBool(options, "allow-partial", false);
             var runner = new WorkflowCliRunner(timeoutMs);
             var manifest = runner.Run(recipePath, inputs, resume, rerun);
+            var store = WorkflowRunStore.Open(manifest.RunId);
             var success = IsSuccessfulWorkflowStatus(manifest.Status, allowPartial);
             return PrintResult(new CommandResult
             {
                 success = success,
                 error = success ? null : BuildWorkflowStatusError(manifest.Status),
-                data = new
-                {
-                    runId = manifest.RunId,
-                    status = manifest.Status,
-                    runDirectory = WorkflowPathHelper.ToDisplayPath(Path.Combine(WorkflowPathHelper.GetRunsDirectory(), manifest.RunId)),
-                    manifest = manifest
-                }
+                data = BuildWorkflowRunData(store, manifest, IsFullDetail(options))
             }, outputMode);
         }
 
@@ -232,13 +227,7 @@ namespace AIBridgeCLI.Commands
             {
                 success = success,
                 error = success ? null : BuildWorkflowStatusError(manifest.Status),
-                data = new
-                {
-                    runId = manifest.RunId,
-                    status = manifest.Status,
-                    reportPath = WorkflowPathHelper.ToDisplayPath(store.ReportPath),
-                    manifest = manifest
-                }
+                data = BuildWorkflowRunData(store, manifest, IsFullDetail(options))
             }, outputMode);
         }
 
@@ -311,7 +300,7 @@ namespace AIBridgeCLI.Commands
             return PrintResult(new CommandResult
             {
                 success = true,
-                data = manifest
+                data = BuildWorkflowRunData(store, manifest, IsFullDetail(options))
             }, outputMode);
         }
 
@@ -334,12 +323,7 @@ namespace AIBridgeCLI.Commands
             return PrintResult(new CommandResult
             {
                 success = true,
-                data = new
-                {
-                    runId = runId,
-                    reportPath = WorkflowPathHelper.ToDisplayPath(store.ReportPath),
-                    manifest = manifest
-                }
+                data = BuildWorkflowRunData(store, manifest, IsFullDetail(options))
             }, outputMode);
         }
 
@@ -388,7 +372,112 @@ namespace AIBridgeCLI.Commands
             return result.success ? 0 : 1;
         }
 
-        private static string GetFileOrRecipe(Dictionary<string, string> options)
+        private static object BuildWorkflowRunData(WorkflowRunStore store, WorkflowRunManifest manifest, bool includeManifest)
+        {
+            var data = new Dictionary<string, object>
+            {
+                { "runId", manifest.RunId },
+                { "status", manifest.Status },
+                { "recipeName", manifest.RecipeName },
+                { "runDirectory", WorkflowPathHelper.ToDisplayPath(store.RunDirectory) },
+                { "manifestPath", WorkflowPathHelper.ToDisplayPath(store.ManifestPath) },
+                { "reportPath", File.Exists(store.ReportPath) ? WorkflowPathHelper.ToDisplayPath(store.ReportPath) : null },
+                { "summary", manifest.Summary },
+                { "gateResults", BuildGateSummary(manifest) },
+                { "stepGaps", BuildStepGapSummary(manifest) },
+                { "failedCommands", BuildFailedCommandSummary(manifest) }
+            };
+
+            if (includeManifest)
+            {
+                data["manifest"] = manifest;
+            }
+
+            return data;
+        }
+
+        private static List<object> BuildGateSummary(WorkflowRunManifest manifest)
+        {
+            var result = new List<object>();
+            if (manifest == null || manifest.GateResults == null)
+            {
+                return result;
+            }
+
+            foreach (var gate in manifest.GateResults)
+            {
+                result.Add(new
+                {
+                    gateId = gate.GateId,
+                    kind = gate.Kind,
+                    status = gate.Status,
+                    required = gate.Required,
+                    message = gate.Message,
+                    evidenceRefs = gate.EvidenceRefs
+                });
+            }
+
+            return result;
+        }
+
+        private static List<object> BuildStepGapSummary(WorkflowRunManifest manifest)
+        {
+            var result = new List<object>();
+            if (manifest == null || manifest.StepStates == null)
+            {
+                return result;
+            }
+
+            foreach (var step in manifest.StepStates)
+            {
+                if (string.Equals(step.Status, "passed", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                result.Add(new
+                {
+                    stepId = step.StepId,
+                    kind = step.Kind,
+                    status = step.Status,
+                    command = step.Command,
+                    error = step.Error,
+                    artifactIds = step.ArtifactIds
+                });
+            }
+
+            return result;
+        }
+
+        private static List<object> BuildFailedCommandSummary(WorkflowRunManifest manifest)
+        {
+            var result = new List<object>();
+            if (manifest == null || manifest.CommandResults == null)
+            {
+                return result;
+            }
+
+            foreach (var command in manifest.CommandResults)
+            {
+                if (command.Success)
+                {
+                    continue;
+                }
+
+                result.Add(new
+                {
+                    commandId = command.CommandId,
+                    command = command.Command,
+                    exitCode = command.ExitCode,
+                    resultPath = command.ResultPath,
+                    artifactIds = command.ArtifactIds
+                });
+            }
+
+            return result;
+        }
+
+        private static string GetFileOrRecipe(Dictionary<string, string> options, string missingMessage = null)
         {
             if (options.TryGetValue("file", out var file) && !string.IsNullOrWhiteSpace(file))
             {
@@ -400,7 +489,7 @@ namespace AIBridgeCLI.Commands
                 return recipe;
             }
 
-            throw new ArgumentException("Missing required option: --file or --recipe.");
+            throw new ArgumentException(missingMessage ?? "Missing required option: --file or --recipe.");
         }
 
         private static string GetRunId(Dictionary<string, string> options, bool required)
@@ -577,6 +666,18 @@ namespace AIBridgeCLI.Commands
             }
 
             return value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "1";
+        }
+
+        private static bool IsFullDetail(Dictionary<string, string> options)
+        {
+            if (options == null)
+            {
+                return false;
+            }
+
+            string value;
+            return options.TryGetValue("detail", out value)
+                && value.Equals("full", StringComparison.OrdinalIgnoreCase);
         }
 
         private static int GetInt(Dictionary<string, string> options, string key, int defaultValue)

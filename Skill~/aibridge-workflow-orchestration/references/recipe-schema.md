@@ -17,14 +17,18 @@ Package templates live under `Templates~/Workflows`. Project-local recipes live 
 ```bash
 $CLI workflow list
 $CLI workflow validate --recipe runtime-target-sweep
+$CLI workflow plan --recipe runtime-debug-investigation --format markdown
 $CLI workflow plan --recipe runtime-ui-validation --format markdown
 $CLI workflow init --recipe runtime-ui-validation
 $CLI workflow begin --recipe unity-change-implementation
 $CLI workflow run-cli --file ".aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json" --inputs ".aibridge/workflows/inputs.json"
 $CLI workflow run-cli --recipe unity-sharded-review --allow-partial true
+$CLI workflow run-cli --recipe unity-sharded-review --resume <runId> --rerun failed
+$CLI harness status
 $CLI get_logs --logType Error --workflow-run <runId>
 $CLI runtime screenshot --target latest --workflow-run <runId>
 $CLI workflow import --run <runId> --step adversarial-verify --schema Verdict --file verdicts.json
+$CLI workflow import --run <runId> --step collect-evidence --schema EvidenceRef --kind evidence --file evidence-refs.json
 $CLI workflow export --recipe runtime-ui-validation --target codex-task-pack --output .aibridge/workflows/exports
 $CLI workflow status --run <runId>
 $CLI workflow report --run <runId> --format markdown
@@ -34,11 +38,13 @@ $CLI workflow clean --older-than 3d --dry-run false --keep-failed true --keep-la
 $CLI workflow clean --older-than 3d --save-settings true --auto-clean true
 ```
 
-`run-cli` executes only deterministic `cli`, `barrier`, and `report` steps. It records `agent` and `manual` steps as `skipped_requires_external_executor`; external tools such as Codex, Claude, or Cursor remain responsible for those steps. `partial` is not a CLI success unless `--allow-partial true` is passed explicitly.
+`run-cli` executes only deterministic `cli`, `barrier`, and `report` steps. It records `agent` and `manual` steps as `skipped_requires_external_executor`; external tools such as Codex, Claude, or Cursor remain responsible for those steps. `workflow run-cli --resume <runId>` still requires `--file` or `--recipe`; resume selects the existing run, while file/recipe selects the recipe definition to execute. `partial` is not a CLI success unless `--allow-partial true` is passed explicitly.
 
-`begin` creates a run and writes `.aibridge/workflows/active-run.json`. Ordinary commands attach evidence when they receive `--workflow-run <runId>`, when `AIBRIDGE_WORKFLOW_RUN_ID` is set, or when an active run exists. `finish` refreshes gates/report and clears the active run pointer. `finish --status passed` is downgraded when required gates are failed, blocked, or missing evidence.
+`begin` creates a run and writes `.aibridge/workflows/active-run.json`. Ordinary commands attach evidence when they receive `--workflow-run <runId>`, when `AIBRIDGE_WORKFLOW_RUN_ID` is set, or when an active run exists. `workflow status` and `workflow report` do not default to the active run; pass `--run <runId>` explicitly, reading `.aibridge/workflows/active-run.json` first when needed. `finish` refreshes gates/report and clears the active run pointer. `finish --status passed` is downgraded when required gates are failed, blocked, or missing evidence.
 
 `import` copies structured external results into run artifacts. `Verdict.status` must be `confirmed`, `refuted`, or `uncertain`; `externalVerdict` gates pass only from imported Verdict artifacts, not from prose summaries. `ValidationResult` imports use the `validation-report` artifact kind by default.
+
+For resumed work, run `workflow status --run <runId>` before adding new evidence. Status, run-cli, finish, and JSON report outputs are compact by default; use `--detail full` only when the full manifest JSON is needed. Use active-run attachment only when the current task clearly belongs to that run; otherwise pass `--workflow-run <runId>` explicitly or start a new run.
 
 `export` compiles a recipe into an external task package or script (`codex-task-pack`, `generic-cli`, `claude-workflow`). Exporters do not run external agents and do not provide an LLM runtime.
 
@@ -120,7 +126,7 @@ Allowed `kind` values:
 - `barrier`: lightweight merge/check step; recorded as passed by `run-cli`.
 - `report`: final reporting step; recorded as passed by `run-cli`.
 
-Template variables use `{{name}}` or `{{inputs.name}}` and are resolved from the merged recipe defaults plus `--inputs`.
+Template variables use `{{name}}` or `{{inputs.name}}` and are resolved from the merged recipe defaults plus `--inputs`. Prefer passing `--inputs` as a JSON file path; inline JSON is shell-quoting sensitive, especially in PowerShell.
 
 ## ArtifactRef
 
@@ -129,6 +135,7 @@ Run artifacts are normalized into manifest `artifactRefs` and individual `artifa
 Standard kinds:
 
 - `command-result`
+- `command-evidence`
 - `console-log`
 - `screenshot`
 - `gif`
@@ -141,6 +148,7 @@ Standard kinds:
 - `patch-proposal`
 - `verdict`
 - `finding`
+- `evidence`
 - `validation-report`
 - `workflow-report`
 
@@ -164,6 +172,18 @@ Allowed `kind` values:
 Required gates failing make the run `failed` or `blocked`. Optional gate failures make evidence visible without forcing the run to fail.
 
 `artifactRequired` may filter by `artifactKind`, `schema`, and `stepId`. `externalVerdict` uses `allow` values such as `confirmed`. `uncertain` is reported as an evidence gap and does not count as pass or fail.
+
+## External Result Schemas
+
+Use `EvidenceRef`, `CommandEvidence`, `Finding`, `Verdict`, `PatchProposal`, and `ValidationResult` when `agent` or `manual` steps are executed by the harness and imported back into a run. Field definitions live in `evidence-schema.md`.
+
+Import examples:
+
+```bash
+$CLI workflow import --run <runId> --step verify-findings --schema Verdict --kind verdict --file verdicts.json
+$CLI workflow import --run <runId> --step collect-evidence --schema EvidenceRef --kind evidence --file evidence-refs.json
+$CLI workflow import --run <runId> --step collect-evidence --schema CommandEvidence --kind command-evidence --file command-evidence.json
+```
 
 ## Boundaries
 

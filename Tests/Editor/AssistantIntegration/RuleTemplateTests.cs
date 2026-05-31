@@ -23,6 +23,7 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("{{SKILL_ROOT_RULE}}", template.Body);
             StringAssert.Contains("{{UNITY_VERSION_RULE}}", template.Body);
             StringAssert.Contains("{{CSHARP_VERSION_RULE}}", template.Body);
+            StringAssert.Contains("{{HARNESS_CAPABILITY_RULE}}", template.Body);
             StringAssert.Contains("{{CODE_INDEX_CAPABILITY_RULE}}", template.Body);
             Assert.IsFalse(template.Body.Contains("{{SKILL_INDEX}}"));
         }
@@ -51,6 +52,8 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("C# code lookup or source navigation", rootRule);
             StringAssert.Contains("load `aibridge-code-index` first", rootRule);
             StringAssert.Contains("this root rule or the workflow", rootRule);
+            StringAssert.Contains("probes harness readiness", rootRule);
+            StringAssert.Contains("Harness capability snapshot", rootRule);
         }
 
         [Test]
@@ -82,6 +85,8 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("C# 代码查找", workflowSkill);
             StringAssert.Contains("优先加入 `aibridge-code-index`", workflowSkill);
             StringAssert.Contains("字面量字符串", workflowSkill);
+            StringAssert.Contains("Harness 能力探测模式", workflowSkill);
+            StringAssert.Contains("references/harness-readiness.md", workflowSkill);
         }
 
         [Test]
@@ -93,6 +98,25 @@ namespace AIBridge.Editor.Tests
 
             Assert.IsFalse(rendered.Contains("{{UNITY_VERSION}}"));
             Assert.IsFalse(rendered.Contains("{{CSHARP_LANGUAGE_VERSION}}"));
+        }
+
+        [Test]
+        public void InstallWritesHarnessCapabilitySnapshot()
+        {
+            var target = AssistantIntegrationRegistry.GetTargets().First(item => item.Id == "codex");
+
+            AIBridgeProjectSettings.Instance.CodeIndex.EnableCodeIndex = true;
+            SkillInstaller.InstallAssistantIntegrations(ProjectRoot, new[] { target });
+
+            var snapshotPath = HarnessCapabilitySnapshot.GetSnapshotPath(ProjectRoot);
+            Assert.IsTrue(File.Exists(snapshotPath), snapshotPath);
+
+            var snapshot = File.ReadAllText(snapshotPath);
+            StringAssert.Contains("\"schemaVersion\"", snapshot);
+            StringAssert.Contains("\"capabilities.json\"", snapshot);
+            StringAssert.Contains("\"codeIndex\"", snapshot);
+            StringAssert.Contains("\"enabled\": true", snapshot);
+            StringAssert.Contains("\"externalExecutor\": \"unknown\"", snapshot);
         }
     }
 }

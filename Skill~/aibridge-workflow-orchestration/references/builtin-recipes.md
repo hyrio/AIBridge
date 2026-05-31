@@ -37,6 +37,15 @@ Use for Editor Play Mode, Windows Player, Android, or LAN Runtime target health 
 - Gates: `runtimeReachable`, `runtimeErrors max=0`, optional `screenshotExists`.
 - Boundary: capture target id or URL in evidence so the same target can be diagnosed later.
 
+## runtime-debug-investigation
+
+Use when the task is to investigate a Runtime, Player, Play Mode, UI, log, or performance symptom and produce a diagnosis before applying fixes.
+
+- Phases: frame problem, collect Editor baseline, collect Runtime baseline, reproduce or trace, analyze candidates, verify candidates, report.
+- CLI steps: `compile unity`, `get_logs`, `runtime list_targets`, `runtime status`, `runtime diagnose`, `runtime logs`, `runtime screenshot`, `runtime perf`, `runtime handlers`.
+- Gates: required evidence gates for Editor logs, Runtime reachability, Runtime status, and Runtime logs; optional screenshot and confirmed external verdict.
+- Boundary: Runtime errors are diagnosis evidence, not a required zero-error health gate. Apply fixes only after a confirmed cause is handed off to an implementation workflow.
+
 ## runtime-ui-validation
 
 Use for validating UI behavior through Runtime or Play Mode action paths.
@@ -62,3 +71,12 @@ Use when the failure source is vague and the workflow needs iterative evidence, 
 - CLI steps: `get_logs`, `compile unity`, and optional tests/runtime evidence.
 - Gates: optional `externalVerdict allow=confirmed`, `unityCompile`, `consoleErrors max=0`, optional `testRun`.
 - Boundary: implement only one confirmed high-value fix per iteration; do not edit based on weak evidence.
+
+## harness-readiness-check
+
+Use before a long workflow, first-time assistant integration, or suspected harness mismatch.
+
+- Phases: locate integration, probe deterministic CLI/workflow capability, record optional Unity/Code Index/Runtime readiness, report.
+- CLI steps: `harness status`, `workflow list`, `workflow validate --recipe unity-change-implementation`, `workflow validate --recipe runtime-debug-investigation`.
+- Outputs: `CommandEvidence`, `EvidenceRef`, `ValidationResult`, `ArtifactRef`.
+- Boundary: optional Unity, Code Index, Runtime, and sub-agent probes are external or manual checks. A missing Runtime target is a capability gap, not proof of game failure.
