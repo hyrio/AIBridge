@@ -5,7 +5,6 @@ using System.Linq;
 using System.Security.Cryptography;
 using AIBridge.Internal.Json;
 using UnityEditor;
-using UnityEditor.PackageManager;
 using UnityEngine;
 
 namespace AIBridge.Editor
@@ -290,7 +289,7 @@ namespace AIBridge.Editor
                 return embedded;
             }
 
-            var packageInfo = PackageInfo.FindForAssetPath("Packages/" + PackageName);
+            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath("Packages/" + PackageName);
             if (packageInfo != null && !string.IsNullOrWhiteSpace(packageInfo.resolvedPath))
             {
                 return packageInfo.resolvedPath;

@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using UnityEditor.PackageManager;
 
 namespace AIBridge.Editor
 {
@@ -15,7 +14,7 @@ namespace AIBridge.Editor
             try
             {
                 // Unity 2021 没有按包名查询的公开 API，使用包路径查询保持 2019.4+ 兼容。
-                var packageInfo = PackageInfo.FindForAssetPath(PackageAssetPath);
+                var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath(PackageAssetPath);
                 if (packageInfo != null)
                 {
                     return true;
