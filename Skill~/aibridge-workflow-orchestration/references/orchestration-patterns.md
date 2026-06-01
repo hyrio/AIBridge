@@ -69,6 +69,17 @@ Use structured outputs for intermediate data and prose for the final human repor
 
 Large outputs should be saved as artifacts and referenced by path or id instead of pasted into the main context.
 
+## Skill Routing And Scope
+
+- Treat Skill routing as a preflight step, not as a business mode or phase.
+- Each phase or external task pack should declare only the Skills required for that phase; candidate Skills that are not read yet should stay deferred.
+- Release mode-specific Skill dependencies only at Mode Exit, phase boundary, or step handoff, then pass a compact handoff instead of the previous phase's full Skill details.
+- A handoff should use the `SkillHandoff` schema and include `completedMode`, `releasedSkills`, `nextRecommendedSkills`, `summary`, `artifactRefs`, `gates`, and `openRisks`.
+- If the next phase needs a released Skill, match and load it again from the current phase's requirements.
+- This is a workflow-level context slimming rule. It does not guarantee that already-read Skill text is physically removed from the model context; actual removal depends on the current AI harness, sub-agent, or compaction support.
+
+For `agent` and `manual` steps, provide the executor with only its required Skills, input summary, artifact refs, gates, and expected output schema. Do not pass role-specific Skill bodies from earlier phases unless the new phase explicitly requires them.
+
 ## Resume And Active Runs
 
 - For a resumed workflow task, identify the run id from the user, prior output, or `.aibridge/workflows/active-run.json`, then check `workflow status --run <runId>` before continuing.

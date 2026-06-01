@@ -65,6 +65,7 @@ Optional fields:
 - `title`
 - `version`
 - `inputs`
+- `requiredSkills`
 - `artifacts`
 
 ```json
@@ -77,6 +78,7 @@ Optional fields:
   "inputs": {
     "target": { "default": "latest" }
   },
+  "requiredSkills": ["aibridge-development-workflow"],
   "phases": [],
   "gates": [],
   "artifacts": []
@@ -92,6 +94,8 @@ Optional fields:
   "description": "Collect Runtime evidence.",
   "dependsOn": ["discover"],
   "itemSource": "inputs.targets",
+  "requiredSkills": ["aibridge"],
+  "releaseSkillsAfter": [],
   "steps": []
 }
 ```
@@ -114,6 +118,8 @@ Allowed `type` values:
   "kind": "cli",
   "description": "Check target status.",
   "command": "runtime status --target {{target}}",
+  "requiredSkills": ["aibridge"],
+  "releaseSkillsAfter": [],
   "outputs": ["RuntimeTargetRef", "ValidationResult"]
 }
 ```
@@ -127,6 +133,39 @@ Allowed `kind` values:
 - `report`: final reporting step; recorded as passed by `run-cli`.
 
 Template variables use `{{name}}` or `{{inputs.name}}` and are resolved from the merged recipe defaults plus `--inputs`. Prefer passing `--inputs` as a JSON file path; inline JSON is shell-quoting sensitive, especially in PowerShell.
+
+## Skill Routing And Scope Metadata
+
+`requiredSkills` and `releaseSkillsAfter` are workflow metadata for external AI harnesses and exported task packs. AIBridge CLI validates and surfaces these fields, but it does not install, unload, or physically remove Skills from a model context.
+
+Skill routing is a preflight step, not a recipe phase or business mode. It computes baseline, active, deferred, and guarded Skills before entering a mode. Release is evaluated at Mode Exit, phase boundary, or step handoff, not when routing finishes.
+
+Allowed locations:
+
+- Recipe `requiredSkills`: baseline Skills expected for the whole recipe.
+- Phase `requiredSkills`: active Skills needed during Mode Enter / phase execution.
+- Phase `releaseSkillsAfter`: phase-scoped active Skills that should be released at phase Exit after the handoff is written.
+- Step `requiredSkills`: active Skills needed by that step, especially `agent` and `manual` steps.
+- Step `releaseSkillsAfter`: step-scoped active Skills that should be released after the step output is imported.
+
+At a phase or step boundary, pass a compact handoff instead of previous Skill details:
+
+```json
+{
+  "completedMode": "runtime-validation",
+  "releasedSkills": ["aibridge-workflow-orchestration"],
+  "nextRecommendedSkills": ["aibridge"],
+  "summary": "Runtime target evidence collected; compile and console gates remain pending.",
+  "artifactRefs": ["art_runtime_status_001"],
+  "gates": [
+    {
+      "id": "runtime-reachable",
+      "status": "passed"
+    }
+  ],
+  "openRisks": []
+}
+```
 
 ## ArtifactRef
 
@@ -149,6 +188,7 @@ Standard kinds:
 - `verdict`
 - `finding`
 - `evidence`
+- `skill-handoff`
 - `validation-report`
 - `workflow-report`
 
@@ -175,7 +215,7 @@ Required gates failing make the run `failed` or `blocked`. Optional gate failure
 
 ## External Result Schemas
 
-Use `EvidenceRef`, `CommandEvidence`, `Finding`, `Verdict`, `PatchProposal`, and `ValidationResult` when `agent` or `manual` steps are executed by the harness and imported back into a run. Field definitions live in `evidence-schema.md`.
+Use `EvidenceRef`, `CommandEvidence`, `Finding`, `Verdict`, `PatchProposal`, `ValidationResult`, and `SkillHandoff` when `agent` or `manual` steps are executed by the harness and imported back into a run. Field definitions live in `evidence-schema.md`.
 
 Import examples:
 
@@ -183,6 +223,7 @@ Import examples:
 $CLI workflow import --run <runId> --step verify-findings --schema Verdict --kind verdict --file verdicts.json
 $CLI workflow import --run <runId> --step collect-evidence --schema EvidenceRef --kind evidence --file evidence-refs.json
 $CLI workflow import --run <runId> --step collect-evidence --schema CommandEvidence --kind command-evidence --file command-evidence.json
+$CLI workflow import --run <runId> --step phase-handoff --schema SkillHandoff --kind skill-handoff --file skill-handoff.json
 ```
 
 ## Boundaries

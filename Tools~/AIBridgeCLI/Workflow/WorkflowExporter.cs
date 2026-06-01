@@ -86,6 +86,7 @@ namespace AIBridgeCLI.Workflow
             sb.AppendLine("- Before resuming an existing run, inspect `workflow status --run <runId>` and continue from missing gates or skipped external steps.");
             sb.AppendLine("- Do not treat `skipped_requires_external_executor` as completed work; the current harness, main agent, or human operator must execute and import those results.");
             sb.AppendLine();
+            WriteSkillScopeSection(sb, recipe);
             sb.AppendLine("## Inputs");
             sb.AppendLine();
             foreach (var property in recipe.Inputs.Properties())
@@ -152,12 +153,49 @@ namespace AIBridgeCLI.Workflow
                     ["CommandEvidence"] = new JObject
                     {
                         ["required"] = new JArray("id", "command", "status", "summary")
+                    },
+                    ["SkillHandoff"] = new JObject
+                    {
+                        ["required"] = new JArray("completedMode", "releasedSkills", "nextRecommendedSkills", "summary", "artifactRefs", "gates", "openRisks")
                     }
                 }
             };
             File.WriteAllText(schemaPath, schema.ToString(Formatting.Indented), new UTF8Encoding(false));
             files.Add(WorkflowPathHelper.ToDisplayPath(markdownPath));
             files.Add(WorkflowPathHelper.ToDisplayPath(schemaPath));
+        }
+
+        private static void WriteSkillScopeSection(StringBuilder sb, WorkflowRecipe recipe)
+        {
+            sb.AppendLine("## Skill Routing And Scope");
+            sb.AppendLine();
+            AppendSkillList(sb, "Recipe required skills", recipe.RequiredSkills);
+
+            foreach (var phase in recipe.Phases ?? new List<WorkflowPhase>())
+            {
+                AppendSkillList(sb, "Phase `" + phase.Id + "` required skills", phase.RequiredSkills);
+                AppendSkillList(sb, "Phase `" + phase.Id + "` release skills after phase", phase.ReleaseSkillsAfter);
+
+                foreach (var step in phase.Steps ?? new List<WorkflowStep>())
+                {
+                    AppendSkillList(sb, "Step `" + step.Id + "` required skills", step.RequiredSkills);
+                    AppendSkillList(sb, "Step `" + step.Id + "` release skills after step", step.ReleaseSkillsAfter);
+                }
+            }
+
+            sb.AppendLine("- Treat Skill routing as preflight, not as a business phase.");
+            sb.AppendLine("- At Mode Exit or phase boundaries, pass compact handoff summaries, artifact refs, gates, and open risks instead of previous phase Skill details.");
+            sb.AppendLine();
+        }
+
+        private static void AppendSkillList(StringBuilder sb, string label, List<string> skills)
+        {
+            if (skills == null || skills.Count == 0)
+            {
+                return;
+            }
+
+            sb.AppendLine("- " + label + ": `" + string.Join("`, `", skills) + "`");
         }
 
         private static List<ImportExample> BuildImportExamples(WorkflowStep step)
@@ -213,6 +251,11 @@ namespace AIBridgeCLI.Workflow
             if (string.Equals(output, "CommandEvidence", StringComparison.OrdinalIgnoreCase))
             {
                 return new ImportExample("CommandEvidence", "command-evidence", "command-evidence.json");
+            }
+
+            if (string.Equals(output, "SkillHandoff", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ImportExample("SkillHandoff", "skill-handoff", "skill-handoff.json");
             }
 
             return null;

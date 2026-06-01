@@ -11,12 +11,12 @@ namespace AIBridgeCLI.Workflow
 
         private static readonly HashSet<string> TopLevelFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "schemaVersion", "name", "title", "description", "version", "inputs", "phases", "gates", "artifacts"
+            "schemaVersion", "name", "title", "description", "version", "inputs", "requiredSkills", "phases", "gates", "artifacts"
         };
 
         private static readonly HashSet<string> PhaseFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "id", "type", "description", "dependsOn", "itemSource", "steps"
+            "id", "type", "description", "dependsOn", "itemSource", "requiredSkills", "releaseSkillsAfter", "steps"
         };
 
         private static readonly HashSet<string> PhaseTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -26,7 +26,7 @@ namespace AIBridgeCLI.Workflow
 
         private static readonly HashSet<string> StepFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "id", "kind", "description", "role", "command", "outputs"
+            "id", "kind", "description", "role", "command", "requiredSkills", "releaseSkillsAfter", "outputs"
         };
 
         private static readonly HashSet<string> StepKinds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

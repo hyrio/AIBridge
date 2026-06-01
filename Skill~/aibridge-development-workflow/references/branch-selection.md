@@ -2,7 +2,23 @@
 
 ## 目标
 
-`aibridge-development-workflow` 是兼容入口，不直接假设所有任务都是实现任务。进入工作流后先选择一个主分支，再加载对应规范和检查清单。
+`aibridge-development-workflow` 是兼容入口，不直接假设所有任务都是实现任务。进入工作流后先执行 Preflight / Skill 路由步骤，选择一个主分支，再进入对应模式生命周期。
+
+## 工作流生命周期
+
+```text
+Preflight / Skill Routing
+  -> Mode Enter
+  -> Mode Execute
+  -> Mode Exit / SkillHandoff / Release
+  -> Transition Preflight
+```
+
+- Preflight / Skill Routing 是入口步骤，不是业务模式；它只选择主分支并计算 Skill 状态。
+- Mode Enter 激活当前模式真正需要的 Skill，并读取必要 reference。
+- Mode Execute 执行当前模式的业务步骤。
+- Mode Exit 生成 `SkillHandoff`，并释放下一模式不需要的模式专用 Skill。
+- Transition Preflight 只在模式切换时轻量执行，用上一模式 handoff 计算下一模式的 Skill delta。
 
 ## 分支选择
 
@@ -20,11 +36,33 @@
 - 实施分支完成改动后，按风险选择验证分支补充 Runtime、截图、UI 或多目标证据。
 - 审查分支发现问题后，未得到修复授权前不直接改文件。
 - 编排分支只定义流程、角色、artifact 和 gate；具体 Unity 对象修改仍由实施分支串行完成。
+- Mode Exit 或分支交接时同步交接 Skill 作用域：列出已释放的模式专用 Skill、下一分支建议加载的 Skill、必要 artifact refs、gate 状态和未关闭风险。
+
+## Handoff 摘要
+
+Mode Exit、phase 结束或 step 交接时，优先输出 `SkillHandoff` compact handoff，而不是继续携带上一模式的完整 Skill 细节。
+
+```json
+{
+  "completedMode": "prefab-patch",
+  "releasedSkills": ["aibridge-prefab-patch"],
+  "nextRecommendedSkills": ["aibridge"],
+  "summary": "已应用 Prefab patch，等待 Unity 编译验证。",
+  "artifactRefs": ["art_patch_proposal_001"],
+  "gates": [
+    {
+      "id": "unity-compile",
+      "status": "pending"
+    }
+  ],
+  "openRisks": []
+}
+```
 
 ## 输出格式
 
 ```text
-【任务分流模式】
+【Preflight / Skill 路由】
 主分支：调试诊断分支
 辅助分支：编排分支（需要 Runtime 多目标 sweep 时）
 理由：用户目标是排查运行时异常，当前验收是证据和根因结论，不是立即修改代码。

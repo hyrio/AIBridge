@@ -15,6 +15,7 @@ Do not use it for routine single-file edits, simple CLI command lookup, or ordin
 - Prefer parallel read and serial write. Use parallel write only when worktree isolation, file ownership, merge strategy, and validation gates are explicit.
 - Use pipeline for staged per-item work. Use parallel barriers only when a downstream step needs all upstream results.
 - Use structured outputs for intermediate results: findings, verdicts, plans, patch proposals, validation results, artifact references, and Runtime target references.
+- Treat Skill routing as preflight; scope phase-specific Skills to the phase that needs them, then pass compact handoff summaries and artifact references across phase boundaries.
 - Separate claims from evidence. Treat AIBridge CLI, Runtime, screenshots, logs, tests, and Code Index output as evidence.
 - Do not describe `workflow` as a generic AI agent scheduler. Current CLI support covers recipe list/validate/plan/init, active run begin/attach/finish, deterministic `run-cli` steps, ordinary-command artifact attach, external result import, adapter export, gates, and reports; `agent` and `manual` steps require an external executor.
 

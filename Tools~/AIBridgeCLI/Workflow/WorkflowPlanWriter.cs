@@ -17,6 +17,7 @@ namespace AIBridgeCLI.Workflow
 
             sb.AppendLine("Recipe: `" + WorkflowPathHelper.ToDisplayPath(recipePath) + "`");
             sb.AppendLine("Description: " + recipe.Description);
+            AppendListLine(sb, "Required skills", recipe.RequiredSkills);
             sb.AppendLine();
             sb.AppendLine("## Phases");
             foreach (var phase in recipe.Phases)
@@ -37,6 +38,9 @@ namespace AIBridgeCLI.Workflow
                 {
                     sb.AppendLine("Item source: `" + phase.ItemSource + "`");
                 }
+
+                AppendListLine(sb, "Required skills", phase.RequiredSkills);
+                AppendListLine(sb, "Release skills after phase", phase.ReleaseSkillsAfter);
 
                 if (phase.Steps == null || phase.Steps.Count == 0)
                 {
@@ -62,6 +66,9 @@ namespace AIBridgeCLI.Workflow
                     {
                         sb.AppendLine("  Command: `" + step.Command + "`");
                     }
+
+                    AppendListLine(sb, "  Required skills", step.RequiredSkills);
+                    AppendListLine(sb, "  Release skills after step", step.ReleaseSkillsAfter);
                 }
             }
 
@@ -94,10 +101,21 @@ namespace AIBridgeCLI.Workflow
                 name = recipe.Name,
                 title = recipe.Title,
                 description = recipe.Description,
+                requiredSkills = recipe.RequiredSkills,
                 phases = recipe.Phases,
                 gates = recipe.Gates,
                 artifacts = recipe.Artifacts
             }, Formatting.Indented);
+        }
+
+        private static void AppendListLine(StringBuilder sb, string label, System.Collections.Generic.List<string> values)
+        {
+            if (values == null || values.Count == 0)
+            {
+                return;
+            }
+
+            sb.AppendLine(label + ": `" + string.Join("`, `", values) + "`");
         }
     }
 }

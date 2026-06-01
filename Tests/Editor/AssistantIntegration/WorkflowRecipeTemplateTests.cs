@@ -87,11 +87,15 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("harness status", recipes);
             StringAssert.Contains("EvidenceRef", schema);
             StringAssert.Contains("CommandEvidence", schema);
+            StringAssert.Contains("SkillHandoff", schema);
             StringAssert.Contains("EvidenceRef", evidenceSchema);
             StringAssert.Contains("CommandEvidence", evidenceSchema);
+            StringAssert.Contains("SkillHandoff", evidenceSchema);
             StringAssert.Contains("workflow status --run", schema);
             StringAssert.Contains("--detail full", schema);
             StringAssert.Contains("Never parallel-write", schema);
+            StringAssert.Contains("requiredSkills", schema);
+            StringAssert.Contains("releaseSkillsAfter", schema);
         }
 
         [Test]
@@ -105,10 +109,13 @@ namespace AIBridge.Editor.Tests
 
             StringAssert.Contains("EvidenceRef", exporter);
             StringAssert.Contains("CommandEvidence", exporter);
+            StringAssert.Contains("SkillHandoff", exporter);
             StringAssert.Contains("skipped_requires_external_executor", exporter);
             StringAssert.Contains("workflow status --run <runId>", exporter);
+            StringAssert.Contains("Skill Routing And Scope", exporter);
             StringAssert.Contains("\"evidence\"", importer);
             StringAssert.Contains("\"command-evidence\"", importer);
+            StringAssert.Contains("\"skill-handoff\"", importer);
             StringAssert.Contains("HarnessCommandBuilder", registry);
             StringAssert.Contains("capabilities.json", harnessCommand);
         }

@@ -141,6 +141,12 @@ namespace AIBridgeCLI.Workflow
                 return "CommandEvidence";
             }
 
+            if (string.Equals(kind, "skill-handoff", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(kind, "skillHandoff", StringComparison.OrdinalIgnoreCase))
+            {
+                return "SkillHandoff";
+            }
+
             return "Verdict";
         }
 
@@ -158,6 +164,11 @@ namespace AIBridgeCLI.Workflow
                     || string.Equals(normalizedKind, "validation-result", StringComparison.OrdinalIgnoreCase))
                 {
                     return "validation-report";
+                }
+
+                if (string.Equals(normalizedKind, "skillHandoff", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "skill-handoff";
                 }
 
                 return normalizedKind;
@@ -186,6 +197,11 @@ namespace AIBridgeCLI.Workflow
             if (string.Equals(schema, "CommandEvidence", StringComparison.OrdinalIgnoreCase))
             {
                 return "command-evidence";
+            }
+
+            if (string.Equals(schema, "SkillHandoff", StringComparison.OrdinalIgnoreCase))
+            {
+                return "skill-handoff";
             }
 
             return "verdict";

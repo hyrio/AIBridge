@@ -7,7 +7,7 @@ description: "AIBridge/Unity 多分支开发工作流入口。Use when creating,
 
 ## 目标
 
-作为 AIBridge/Unity 任务入口，完成 Skill 匹配、Harness 能力探测、任务分流、风险判断、执行和收尾验证。各阶段默认内部执行；只有能力降级、风险确认、验证失败或用户要求时，才把阶段状态展开给用户。
+作为 AIBridge/Unity 任务入口，完成 Preflight / Skill 路由、Harness 能力探测、任务分流、风险判断、执行和收尾验证。各阶段默认内部执行；只有能力降级、风险确认、验证失败或用户要求时，才把阶段状态展开给用户。
 
 ## 按需读取
 
@@ -20,7 +20,9 @@ description: "AIBridge/Unity 多分支开发工作流入口。Use when creating,
 - `references/debug-investigation-workflow.md`：调试诊断分支流程和证据规则。
 - `references/debug-investigation-checklist.md`：调试诊断分支检查清单。
 
-## Skill 匹配
+## Preflight / Skill 路由
+
+Skill 路由是进入业务模式前的入口步骤，不是可释放的业务模式。它只计算 `baselineSkills`、`activeSkills`、`deferredSkills` 和 `guardedSkills`；释放发生在业务模式、workflow phase 或 step 的 Exit 阶段。
 
 - 所有开发、调试、审查、验证或 workflow 任务至少包含 `aibridge-development-workflow`。
 - 涉及 AIBridge CLI、Unity 编译、日志、资源、Prefab、场景或 Inspector 操作时，加入 `aibridge`。
@@ -33,6 +35,16 @@ description: "AIBridge/Unity 多分支开发工作流入口。Use when creating,
 - Workflow recipe、多 Agent 编排、并行/流水线分工、对抗验证、多目标 sweep、结构化 artifact 或 workflow 方案设计：加入 `aibridge-workflow-orchestration`。
 - 创建或修改 Skill：加入 `skill-creator`。
 - 复杂一次性 Editor 侧 C# 任务：读取 `references/editor-generation.md`，优先评估 `.aibridge/code/*.csx`。
+
+## 模式生命周期与 Skill 作用域
+
+- `aibridge-development-workflow` 是常驻入口；其它 Skill 默认只在当前主分支、workflow phase 或具体操作内有效。
+- 主流程按 `Preflight -> Mode Enter -> Mode Execute -> Mode Exit -> Transition Preflight` 执行。
+- `Mode Enter` 激活当前模式真正需要的 Skill；`deferredSkills` 和 `guardedSkills` 只记录触发条件，不读取完整内容。
+- 加载可选 Skill 前先确认当前模式需要；不要因为上一模式使用过，就继续携带其详细规则。
+- 主分支、workflow phase 或 step 的 Exit 阶段释放本模式专用 Skill 的上下文依赖：停止引用其详细规则，只保留 `SkillHandoff`、artifact refs、gate 状态和必要命令。
+- 下一模式如果仍需要同一 Skill，必须重新匹配并按需读取；不要假设已释放 Skill 继续生效。
+- 这里的释放是工作流级上下文瘦身规则，不承诺从模型窗口物理删除已读文本；真正清理取决于当前 AI harness 的上下文管理能力。
 
 ## Harness 能力探测模式
 

@@ -24,6 +24,9 @@ namespace AIBridgeCLI.Workflow
         [JsonProperty("inputs")]
         public JObject Inputs { get; set; } = new JObject();
 
+        [JsonProperty("requiredSkills")]
+        public List<string> RequiredSkills { get; set; } = new List<string>();
+
         [JsonProperty("phases")]
         public List<WorkflowPhase> Phases { get; set; } = new List<WorkflowPhase>();
 
@@ -51,6 +54,12 @@ namespace AIBridgeCLI.Workflow
         [JsonProperty("itemSource")]
         public string ItemSource { get; set; }
 
+        [JsonProperty("requiredSkills")]
+        public List<string> RequiredSkills { get; set; } = new List<string>();
+
+        [JsonProperty("releaseSkillsAfter")]
+        public List<string> ReleaseSkillsAfter { get; set; } = new List<string>();
+
         [JsonProperty("steps")]
         public List<WorkflowStep> Steps { get; set; } = new List<WorkflowStep>();
     }
@@ -71,6 +80,12 @@ namespace AIBridgeCLI.Workflow
 
         [JsonProperty("command")]
         public string Command { get; set; }
+
+        [JsonProperty("requiredSkills")]
+        public List<string> RequiredSkills { get; set; } = new List<string>();
+
+        [JsonProperty("releaseSkillsAfter")]
+        public List<string> ReleaseSkillsAfter { get; set; } = new List<string>();
 
         [JsonProperty("outputs")]
         public List<string> Outputs { get; set; } = new List<string>();

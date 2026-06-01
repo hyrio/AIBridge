@@ -5,17 +5,30 @@
   "description": "Validate a built-in workflow recipe through workflow run-cli without requiring Unity Editor.",
   "version": "1.0.0",
   "inputs": {},
+  "requiredSkills": [
+    "aibridge-development-workflow",
+    "aibridge-workflow-orchestration"
+  ],
   "phases": [
     {
       "id": "validate-template",
       "type": "serial",
       "description": "Run a CLI-only nested workflow validation command.",
+      "requiredSkills": [
+        "aibridge-workflow-orchestration"
+      ],
+      "releaseSkillsAfter": [
+        "aibridge-workflow-orchestration"
+      ],
       "steps": [
         {
           "id": "validate-runtime-target-sweep",
           "kind": "cli",
           "description": "Validate the built-in runtime target sweep recipe.",
           "command": "workflow validate --recipe runtime-target-sweep",
+          "requiredSkills": [
+            "aibridge-workflow-orchestration"
+          ],
           "outputs": [
             "ValidationResult",
             "ArtifactRef"
