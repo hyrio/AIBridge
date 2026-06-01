@@ -38,6 +38,7 @@ namespace AIBridge.Runtime
         private const int MaxRuntimeCodeAssemblyBytes = 16 * 1024 * 1024;
         private const int MaxRuntimeCodeResultDepth = 8;
         private const int MaxRuntimeCodeCollectionItems = 512;
+        private const int CommandPumpStaleMilliseconds = 3000;
 
         private static readonly string[] BuiltInActions =
         {
@@ -107,6 +108,10 @@ namespace AIBridge.Runtime
         private bool _initialized;
         private bool _runInBackgroundChanged;
         private bool _previousRunInBackground;
+        private volatile bool _runtimeServicesStopping;
+        private string _runtimeStopReason;
+        private long _lastMainThreadTickUtcTicks;
+        private int _processingCommands;
 
         private void Awake()
         {
@@ -120,16 +125,39 @@ namespace AIBridge.Runtime
             Instance = this;
             DontDestroyOnLoad(gameObject);
             _startedAtUtc = DateTime.UtcNow;
+            MarkRuntimeServicesRunning();
             Initialize();
+        }
+
+        private void OnEnable()
+        {
+            if (Instance != this || !_initialized)
+            {
+                return;
+            }
+
+            MarkRuntimeServicesRunning();
+            ApplyRunInBackgroundIfNeeded();
+            StartHttpTransportIfNeeded();
+            StartLanDiscoveryIfNeeded();
+            WriteHeartbeat();
+        }
+
+        private void OnDisable()
+        {
+            StopRuntimeServices("disabled");
+        }
+
+        private void OnApplicationQuit()
+        {
+            StopRuntimeServices("application_quit");
         }
 
         private void OnDestroy()
         {
             if (Instance == this)
             {
-                StopLanDiscovery();
-                StopHttpTransport();
-                RestoreRunInBackgroundIfNeeded();
+                StopRuntimeServices("destroyed");
                 Instance = null;
                 _logBuffer.Dispose();
                 LogDebug("Destroyed");
@@ -143,6 +171,7 @@ namespace AIBridge.Runtime
                 return;
             }
 
+            MarkMainThreadTick();
             WriteHeartbeatIfDue();
 
             var now = Time.realtimeSinceStartup;
@@ -166,7 +195,17 @@ namespace AIBridge.Runtime
                     cmd = _commandQueue.Dequeue();
                 }
 
-                ProcessCommand(cmd);
+                Interlocked.Increment(ref _processingCommands);
+                try
+                {
+                    ProcessCommand(cmd);
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _processingCommands);
+                    MarkMainThreadTick();
+                }
+
                 processed++;
             }
         }
@@ -1085,36 +1124,36 @@ namespace AIBridge.Runtime
 
         private object BuildStatusData()
         {
-            return new
+            var data = new Dictionary<string, object>
             {
-                targetId = _targetId,
-                protocolVersion = 2,
-                transport = _httpTransportServer != null && _httpTransportServer.IsRunning ? "http" : "file",
-                capabilities = BuildCapabilitiesData(),
-                bindUrl = BuildLocalHttpUrl(),
-                reachableUrl = BuildLocalHttpUrl(),
-                httpUrl = BuildLocalHttpUrl(),
-                httpPort = GetActualHttpPort(),
-                httpBindAddress = runtimeSettings == null ? null : runtimeSettings.httpBindAddress,
-                lanDiscoveryUdpPort = GetActualLanDiscoveryPort(),
-                runtimeVersion = RuntimeVersion,
-                productName = Application.productName,
-                applicationVersion = Application.version,
-                unityVersion = Application.unityVersion,
-                platform = Application.platform.ToString(),
-                deviceName = SystemInfo.deviceName,
-                isEditor = Application.isEditor,
-                isDebugBuild = Debug.isDebugBuild,
-                runInBackground = Application.runInBackground,
-                keepRunningInBackground = runtimeSettings != null && runtimeSettings.keepRunningInBackground,
-                activeScene = SceneManager.GetActiveScene().name,
-                loadedScenes = GetLoadedScenes(),
-                uptimeSeconds = (DateTime.UtcNow - _startedAtUtc).TotalSeconds,
-                frameCount = Time.frameCount,
-                timeScale = Time.timeScale,
-                approximateFps = Time.unscaledDeltaTime > 0f ? 1f / Time.unscaledDeltaTime : 0f,
-                logBufferCount = _logBuffer.Count,
-                paths = new
+                ["targetId"] = _targetId,
+                ["protocolVersion"] = 2,
+                ["transport"] = _httpTransportServer != null && _httpTransportServer.IsRunning ? "http" : "file",
+                ["capabilities"] = BuildCapabilitiesData(),
+                ["bindUrl"] = BuildLocalHttpUrl(),
+                ["reachableUrl"] = BuildLocalHttpUrl(),
+                ["httpUrl"] = BuildLocalHttpUrl(),
+                ["httpPort"] = GetActualHttpPort(),
+                ["httpBindAddress"] = runtimeSettings == null ? null : runtimeSettings.httpBindAddress,
+                ["lanDiscoveryUdpPort"] = GetActualLanDiscoveryPort(),
+                ["runtimeVersion"] = RuntimeVersion,
+                ["productName"] = Application.productName,
+                ["applicationVersion"] = Application.version,
+                ["unityVersion"] = Application.unityVersion,
+                ["platform"] = Application.platform.ToString(),
+                ["deviceName"] = SystemInfo.deviceName,
+                ["isEditor"] = Application.isEditor,
+                ["isDebugBuild"] = Debug.isDebugBuild,
+                ["runInBackground"] = Application.runInBackground,
+                ["keepRunningInBackground"] = runtimeSettings != null && runtimeSettings.keepRunningInBackground,
+                ["activeScene"] = SceneManager.GetActiveScene().name,
+                ["loadedScenes"] = GetLoadedScenes(),
+                ["uptimeSeconds"] = (DateTime.UtcNow - _startedAtUtc).TotalSeconds,
+                ["frameCount"] = Time.frameCount,
+                ["timeScale"] = Time.timeScale,
+                ["approximateFps"] = Time.unscaledDeltaTime > 0f ? 1f / Time.unscaledDeltaTime : 0f,
+                ["logBufferCount"] = _logBuffer.Count,
+                ["paths"] = new
                 {
                     runtimeRoot = _runtimeRootPath,
                     targetPath = _targetPath,
@@ -1123,6 +1162,8 @@ namespace AIBridge.Runtime
                     screenshots = _screenshotsPath
                 }
             };
+            AddRuntimeReadinessData(data);
+            return data;
         }
 
         private object BuildLogsData(AIBridgeRuntimeCommand cmd)
@@ -1536,6 +1577,7 @@ namespace AIBridge.Runtime
                 ["resultsPath"] = _resultsPath,
                 ["screenshotsPath"] = _screenshotsPath
             };
+            AddRuntimeReadinessData(heartbeat);
 
             try
             {
@@ -1583,6 +1625,149 @@ namespace AIBridge.Runtime
 
             _runInBackgroundChanged = false;
 #endif
+        }
+
+        public void ShutdownRuntimeBridge(string reason = null)
+        {
+            StopRuntimeServices(string.IsNullOrEmpty(reason) ? "shutdown" : reason);
+        }
+
+        private void MarkRuntimeServicesRunning()
+        {
+            _runtimeServicesStopping = false;
+            _runtimeStopReason = null;
+            lock (_pendingHttpResultsSyncRoot)
+            {
+                _pendingHttpResults.Clear();
+                _httpCommandIds.Clear();
+            }
+
+            MarkMainThreadTick();
+        }
+
+        private void MarkMainThreadTick()
+        {
+            Interlocked.Exchange(ref _lastMainThreadTickUtcTicks, DateTime.UtcNow.Ticks);
+        }
+
+        private void StopRuntimeServices(string reason)
+        {
+            _runtimeServicesStopping = true;
+            _runtimeStopReason = string.IsNullOrEmpty(reason) ? "stopping" : reason;
+            FailPendingHttpCommands("runtime_not_ready: " + _runtimeStopReason);
+            StopLanDiscovery();
+            StopHttpTransport();
+            RestoreRunInBackgroundIfNeeded();
+        }
+
+        internal bool IsCommandPumpReady(out string reason, out long mainThreadTickAgeMs)
+        {
+            reason = null;
+            mainThreadTickAgeMs = GetMainThreadTickAgeMs();
+
+            if (!_initialized)
+            {
+                reason = "runtime_not_initialized";
+                return false;
+            }
+
+            if (_runtimeServicesStopping)
+            {
+                reason = string.IsNullOrEmpty(_runtimeStopReason)
+                    ? "runtime_stopping"
+                    : "runtime_stopping: " + _runtimeStopReason;
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref _processingCommands, 0, 0) > 0)
+            {
+                return true;
+            }
+
+            if (mainThreadTickAgeMs > CommandPumpStaleMilliseconds)
+            {
+                reason = "command_pump_stale";
+                return false;
+            }
+
+            return true;
+        }
+
+        private long GetMainThreadTickAgeMs()
+        {
+            var ticks = Interlocked.CompareExchange(ref _lastMainThreadTickUtcTicks, 0L, 0L);
+            if (ticks <= 0L)
+            {
+                return long.MaxValue;
+            }
+
+            var age = DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc);
+            if (age.TotalMilliseconds < 0d)
+            {
+                return 0L;
+            }
+
+            return (long)age.TotalMilliseconds;
+        }
+
+        private string GetLastMainThreadTickUtc()
+        {
+            var ticks = Interlocked.CompareExchange(ref _lastMainThreadTickUtcTicks, 0L, 0L);
+            return ticks <= 0L ? null : new DateTime(ticks, DateTimeKind.Utc).ToString("o");
+        }
+
+        private Dictionary<string, object> BuildRuntimeReadinessData()
+        {
+            string reason;
+            long ageMs;
+            var ready = IsCommandPumpReady(out reason, out ageMs);
+            var runtimeState = ready ? "running" : (_runtimeServicesStopping ? "stopping" : "not_ready");
+            return new Dictionary<string, object>
+            {
+                ["ready"] = ready,
+                ["runtimeState"] = runtimeState,
+                ["commandPumpReady"] = ready,
+                ["commandPumpReason"] = ready ? null : reason,
+                ["commandPumpStaleThresholdMs"] = CommandPumpStaleMilliseconds,
+                ["lastMainThreadTickUtc"] = GetLastMainThreadTickUtc(),
+                ["lastMainThreadTickAgeMs"] = ageMs == long.MaxValue ? (object)null : ageMs,
+                ["processingCommands"] = Interlocked.CompareExchange(ref _processingCommands, 0, 0),
+                ["stopReason"] = _runtimeStopReason
+            };
+        }
+
+        private void AddRuntimeReadinessData(Dictionary<string, object> data)
+        {
+            if (data == null)
+            {
+                return;
+            }
+
+            var readiness = BuildRuntimeReadinessData();
+            foreach (var pair in readiness)
+            {
+                data[pair.Key] = pair.Value;
+            }
+        }
+
+        private void FailPendingHttpCommands(string error)
+        {
+            lock (_pendingHttpResultsSyncRoot)
+            {
+                if (_httpCommandIds.Count == 0)
+                {
+                    return;
+                }
+
+                var commandIds = new List<string>(_httpCommandIds);
+                for (var i = 0; i < commandIds.Count; i++)
+                {
+                    var commandId = commandIds[i];
+                    _pendingHttpResults[commandId] = AIBridgeRuntimeCommandResult.FromFailure(commandId, error);
+                }
+
+                Monitor.PulseAll(_pendingHttpResultsSyncRoot);
+            }
         }
 
         private void WriteResult(AIBridgeRuntimeCommandResult result)
@@ -1776,7 +1961,7 @@ namespace AIBridge.Runtime
         internal Dictionary<string, object> BuildHttpHealthData()
         {
             // HTTP 请求在后台线程处理，health 只读取运行时缓存字段，避免跨线程访问 Unity API。
-            return new Dictionary<string, object>
+            var health = new Dictionary<string, object>
             {
                 ["targetId"] = _targetId,
                 ["protocolVersion"] = 2,
@@ -1798,6 +1983,8 @@ namespace AIBridge.Runtime
                 ["lastHeartbeatUtc"] = DateTime.UtcNow.ToString("o"),
                 ["capabilities"] = BuildCapabilitiesData()
             };
+            AddRuntimeReadinessData(health);
+            return health;
         }
 
         private void CacheMainThreadRuntimeInfo()
@@ -1812,11 +1999,21 @@ namespace AIBridge.Runtime
             _cachedIsDebugBuild = Debug.isDebugBuild;
         }
 
-        internal void EnqueueHttpCommand(AIBridgeRuntimeCommand command)
+        internal bool EnqueueHttpCommand(AIBridgeRuntimeCommand command, out string error)
         {
+            error = null;
             if (command == null)
             {
-                return;
+                error = "invalid_command";
+                return false;
+            }
+
+            string reason;
+            long ageMs;
+            if (!IsCommandPumpReady(out reason, out ageMs))
+            {
+                error = reason;
+                return false;
             }
 
             if (!string.IsNullOrEmpty(command.Id))
@@ -1831,6 +2028,8 @@ namespace AIBridge.Runtime
             {
                 _commandQueue.Enqueue(command);
             }
+
+            return true;
         }
 
         internal bool TryGetHttpResult(string commandId, bool remove, out AIBridgeRuntimeCommandResult result)

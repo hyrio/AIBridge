@@ -137,11 +137,11 @@ namespace AIBridge.Editor
                     break;
 
                 case PlayModeStateChange.ExitingPlayMode:
-                    // Exiting play mode
+                    AIBridgeRuntimeBridgeEditorUtility.ShutdownPlayModeRuntimeBridges("exiting_play_mode");
                     break;
 
                 case PlayModeStateChange.EnteredEditMode:
-                    // Back to edit mode - reinitialize if needed
+                    AIBridgeRuntimeBridgeEditorUtility.ShutdownPlayModeRuntimeBridges("entered_edit_mode");
                     break;
             }
         }

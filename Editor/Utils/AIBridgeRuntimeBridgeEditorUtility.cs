@@ -493,6 +493,22 @@ namespace AIBridge.Editor
             return runtime;
         }
 
+        public static void ShutdownPlayModeRuntimeBridges(string reason)
+        {
+            var runtimes = FindSceneRuntimes();
+            for (var i = 0; i < runtimes.Length; i++)
+            {
+                var runtime = runtimes[i];
+                if (runtime == null)
+                {
+                    continue;
+                }
+
+                // Play Mode 退出后主线程不再消费 Runtime 命令，先停服务，避免 HTTP health 半存活。
+                runtime.ShutdownRuntimeBridge(reason);
+            }
+        }
+
         public static void ApplyProjectSettingsToRuntime(AIBridgeRuntime runtime)
         {
             if (runtime == null)

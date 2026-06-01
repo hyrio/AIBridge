@@ -17,7 +17,9 @@ namespace AIBridgeCLI.Core
         private const string CheckPassed = "passed";
         private const string CheckFailed = "failed";
         private const int HealthProbeTimeoutMs = 100;
+        private const int CachedHealthProbeTimeoutMs = 500;
         private const int LocalPortScanIdleMissLimit = 8;
+        private const int DiagnosticCommandTimeoutMs = 3000;
 
         private readonly RuntimeTransportOptions _options;
         private readonly HttpClient _httpClient;
@@ -50,27 +52,7 @@ namespace AIBridgeCLI.Core
                     continue;
                 }
 
-                targets.Add(new RuntimeTargetInfo
-                {
-                    targetId = target.targetId,
-                    path = targetUrl,
-                    heartbeatPath = targetUrl.TrimEnd('/') + "/aibridge/health",
-                    commandsPath = targetUrl.TrimEnd('/') + "/aibridge/commands",
-                    resultsPath = targetUrl.TrimEnd('/') + "/aibridge/results",
-                    screenshotsPath = targetUrl,
-                    source = target.source,
-                    platform = target.platform,
-                    projectName = target.projectName,
-                    deviceName = target.deviceName,
-                    targetKind = target.targetKind,
-                    reachable = target.reachable,
-                    connectionUrl = targetUrl,
-                    preferred = IsPreferredCachedTarget(target),
-                    stale = false,
-                    ageSeconds = 0,
-                    lastHeartbeatUtc = target.lastSeenUtc,
-                    heartbeat = JObject.FromObject(target)
-                });
+                AddTargetFromHealth(targets, targetUrl, TryGetHealth(targetUrl, CachedHealthProbeTimeoutMs), target);
             }
 
             if (!_options.HttpUrlExplicit && !HasPreferredFilters())
@@ -182,7 +164,7 @@ namespace AIBridgeCLI.Core
                 commandsPath = url + "/aibridge/commands",
                 resultsPath = url + "/aibridge/results",
                 screenshotsPath = url,
-                source = "http-health",
+                source = fallback == null || string.IsNullOrWhiteSpace(fallback.source) ? "http-health" : fallback.source,
                 platform = platform,
                 projectName = projectName,
                 deviceName = deviceName,
@@ -354,17 +336,19 @@ namespace AIBridgeCLI.Core
                 var diagnosticUrl = targetInfo == null || string.IsNullOrWhiteSpace(targetInfo.path)
                     ? _options.HttpUrl
                     : targetInfo.path;
-                var health = TryGetHealth(diagnosticUrl, _options.TimeoutMs);
-                if (health == null)
+                JObject health;
+                string healthError;
+                int healthStatusCode;
+                if (!TryGetHealth(diagnosticUrl, _options.TimeoutMs, out health, out healthError, out healthStatusCode))
                 {
                     report.checks.Add(new RuntimeDiagnosticCheck
                     {
                         name = "httpEndpoint",
                         status = CheckFailed,
-                        detail = "HTTP endpoint did not return a valid health payload: " + diagnosticUrl,
+                        detail = "HTTP endpoint did not return a ready health payload: " + diagnosticUrl + ". " + healthError,
                         fix = "Verify runtimeSettings.enableHttpTransport, bind/port, firewall, and --url."
                     });
-                    report.summary = "HTTP endpoint health check failed.";
+                    report.summary = "HTTP endpoint health check failed or runtime is not ready.";
                     report.success = false;
                     return report;
                 }
@@ -378,11 +362,40 @@ namespace AIBridgeCLI.Core
                 });
                 report.checks.Add(new RuntimeDiagnosticCheck
                 {
+                    name = "runtimeReady",
+                    status = CheckPassed,
+                    detail = BuildReadyDetail(health, healthStatusCode)
+                });
+                report.checks.Add(new RuntimeDiagnosticCheck
+                {
                     name = "authHeader",
                     status = string.IsNullOrEmpty(_options.Token) ? "warning" : CheckPassed,
                     detail = string.IsNullOrEmpty(_options.Token)
                         ? "No --token was provided. This is valid only when runtimeSettings.authToken is empty."
                         : "Authorization bearer token will be sent."
+                });
+                var pingResult = TryDiagnosticPing(diagnosticUrl);
+                if (pingResult == null || !pingResult.success)
+                {
+                    report.checks.Add(new RuntimeDiagnosticCheck
+                    {
+                        name = "handlerRoundtrip",
+                        status = CheckFailed,
+                        detail = pingResult == null
+                            ? "runtime.ping did not return a valid result."
+                            : "runtime.ping failed: " + pingResult.error,
+                        fix = "Ensure the Player or Editor Play Mode is still running and consuming Runtime Bridge commands."
+                    });
+                    report.success = false;
+                    report.summary = "Runtime HTTP endpoint is reachable, but handler roundtrip failed.";
+                    return report;
+                }
+
+                report.checks.Add(new RuntimeDiagnosticCheck
+                {
+                    name = "handlerRoundtrip",
+                    status = CheckPassed,
+                    detail = "runtime.ping handler responded."
                 });
                 report.suggestions.Add("Run: $CLI runtime status --transport http --url " + diagnosticUrl);
                 if (!string.IsNullOrWhiteSpace(_options.PreferredPlatform))
@@ -415,14 +428,92 @@ namespace AIBridgeCLI.Core
 
         private JObject TryGetHealth(string baseUrl, int timeoutMs)
         {
+            JObject health;
+            string error;
+            int statusCode;
+            return TryGetHealth(baseUrl, timeoutMs, out health, out error, out statusCode) ? health : null;
+        }
+
+        private bool TryGetHealth(string baseUrl, int timeoutMs, out JObject health, out string error, out int statusCode)
+        {
+            health = null;
+            error = null;
+            statusCode = 0;
             try
             {
-                var json = SendJson(BuildUrl(baseUrl, "/aibridge/health"), HttpMethod.Get, null, _options.Token, timeoutMs);
-                return JObject.Parse(json);
+                using (var message = new HttpRequestMessage(HttpMethod.Get, BuildUrl(baseUrl, "/aibridge/health")))
+                using (var cancellation = new CancellationTokenSource(Math.Max(100, timeoutMs)))
+                {
+                    if (!string.IsNullOrWhiteSpace(_options.Token))
+                    {
+                        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.Token);
+                    }
+
+                    using (var response = _httpClient.SendAsync(message, cancellation.Token).GetAwaiter().GetResult())
+                    {
+                        statusCode = (int)response.StatusCode;
+                        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                        if (string.IsNullOrWhiteSpace(body))
+                        {
+                            error = "HTTP " + statusCode.ToString(CultureInfo.InvariantCulture) + " " + response.ReasonPhrase;
+                            return false;
+                        }
+
+                        health = JObject.Parse(body);
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            error = "HTTP " + statusCode.ToString(CultureInfo.InvariantCulture) + " " + response.ReasonPhrase + ": " + BuildHealthNotReadyReason(health);
+                            return false;
+                        }
+
+                        if (!IsHealthReady(health))
+                        {
+                            error = BuildHealthNotReadyReason(health);
+                            return false;
+                        }
+
+                        return true;
+                    }
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                return null;
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        private CommandResult TryDiagnosticPing(string baseUrl)
+        {
+            var commandId = "diagnose_ping_" + Guid.NewGuid().ToString("N");
+            var request = new CommandRequest
+            {
+                id = commandId,
+                type = "runtime",
+                @params = new Dictionary<string, object>
+                {
+                    ["action"] = "runtime.ping"
+                }
+            };
+
+            try
+            {
+                var url = BuildUrl(baseUrl, "/aibridge/commands?timeoutMs=" + DiagnosticCommandTimeoutMs.ToString(CultureInfo.InvariantCulture));
+                var json = JsonConvert.SerializeObject(request, Formatting.None, new JsonSerializerSettings
+                {
+                    NullValueHandling = NullValueHandling.Ignore
+                });
+                var responseJson = SendJson(url, HttpMethod.Post, json, ResolveToken(request), DiagnosticCommandTimeoutMs + 500);
+                return RuntimeResultParser.Parse(commandId, responseJson);
+            }
+            catch (Exception ex)
+            {
+                return new CommandResult
+                {
+                    id = commandId,
+                    success = false,
+                    error = ex.Message
+                };
             }
         }
 
@@ -578,18 +669,6 @@ namespace AIBridgeCLI.Core
             data["reachableUrl"] = connectionUrl;
             data["connectionUrl"] = connectionUrl;
             data["healthUrl"] = BuildUrl(connectionUrl, "/aibridge/health");
-        }
-
-        private bool IsPreferredCachedTarget(RuntimeDiscoveryTarget target)
-        {
-            if (target == null)
-            {
-                return false;
-            }
-
-            var targetUrl = target.reachableUrl ?? target.url;
-            return !string.IsNullOrWhiteSpace(targetUrl)
-                && string.Equals(targetUrl.TrimEnd('/'), _options.HttpUrl, StringComparison.OrdinalIgnoreCase);
         }
 
         private bool HasPreferredFilters()
@@ -789,6 +868,56 @@ namespace AIBridgeCLI.Core
             return BuildUrl(baseUrl, path);
         }
 
+        private static bool IsHealthReady(JObject health)
+        {
+            if (health == null)
+            {
+                return false;
+            }
+
+            var ready = ReadBool(health, "ready");
+            if (ready.HasValue && !ready.Value)
+            {
+                return false;
+            }
+
+            var commandPumpReady = ReadBool(health, "commandPumpReady");
+            if (commandPumpReady.HasValue && !commandPumpReady.Value)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static string BuildReadyDetail(JObject health, int statusCode)
+        {
+            var age = ReadString(health, "lastMainThreadTickAgeMs");
+            var state = ReadString(health, "runtimeState");
+            return "Runtime is ready"
+                + (statusCode > 0 ? " (HTTP " + statusCode.ToString(CultureInfo.InvariantCulture) + ")" : string.Empty)
+                + (string.IsNullOrWhiteSpace(state) ? string.Empty : ", state=" + state)
+                + (string.IsNullOrWhiteSpace(age) ? string.Empty : ", lastMainThreadTickAgeMs=" + age)
+                + ".";
+        }
+
+        private static string BuildHealthNotReadyReason(JObject health)
+        {
+            if (health == null)
+            {
+                return "invalid_health_payload";
+            }
+
+            var reason = ReadString(health, "commandPumpReason");
+            if (!string.IsNullOrWhiteSpace(reason))
+            {
+                return reason;
+            }
+
+            var state = ReadString(health, "runtimeState");
+            return string.IsNullOrWhiteSpace(state) ? "runtime_not_ready" : "runtime_not_ready: " + state;
+        }
+
         private string ResolveToken(CommandRequest request)
         {
             if (!string.IsNullOrWhiteSpace(_options.Token))
@@ -837,6 +966,22 @@ namespace AIBridgeCLI.Core
             return obj != null && obj.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out var value)
                 ? value.Value<string>()
                 : null;
+        }
+
+        private static bool? ReadBool(JObject obj, string key)
+        {
+            if (obj == null || !obj.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out var value))
+            {
+                return null;
+            }
+
+            if (value.Type == JTokenType.Boolean)
+            {
+                return value.Value<bool>();
+            }
+
+            bool parsed;
+            return bool.TryParse(value.Value<string>(), out parsed) ? parsed : (bool?)null;
         }
     }
 }

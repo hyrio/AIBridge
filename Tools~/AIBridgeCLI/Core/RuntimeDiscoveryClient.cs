@@ -584,6 +584,13 @@ namespace AIBridgeCLI.Core
                 target.health = health;
                 target.healthError = null;
                 target.lastSeenUtc = DateTime.UtcNow.ToString("o");
+                if (!IsHealthReady(health))
+                {
+                    target.reachable = false;
+                    target.healthError = BuildHealthNotReadyReason(health);
+                    continue;
+                }
+
                 target.targetId = ReadString(health, "targetId") ?? target.targetId;
                 target.platform = ReadString(health, "platform") ?? target.platform;
                 target.projectName = ReadString(health, "productName") ?? target.projectName;
@@ -1022,6 +1029,35 @@ namespace AIBridgeCLI.Core
 
             bool parsed;
             return bool.TryParse(value.Value<string>(), out parsed) ? parsed : (bool?)null;
+        }
+
+        private static bool IsHealthReady(JObject health)
+        {
+            var ready = ReadBool(health, "ready");
+            if (ready.HasValue && !ready.Value)
+            {
+                return false;
+            }
+
+            var commandPumpReady = ReadBool(health, "commandPumpReady");
+            if (commandPumpReady.HasValue && !commandPumpReady.Value)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static string BuildHealthNotReadyReason(JObject health)
+        {
+            var reason = ReadString(health, "commandPumpReason");
+            if (!string.IsNullOrWhiteSpace(reason))
+            {
+                return reason;
+            }
+
+            var state = ReadString(health, "runtimeState");
+            return string.IsNullOrWhiteSpace(state) ? "runtime_not_ready" : "runtime_not_ready: " + state;
         }
 
         private static List<string> BuildSuggestions(

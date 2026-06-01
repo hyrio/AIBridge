@@ -196,7 +196,8 @@ namespace AIBridge.Runtime.Transports
             if (string.Equals(request.Method, "GET", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(request.Path, HealthPath, StringComparison.OrdinalIgnoreCase))
             {
-                WriteJson(stream, 200, _runtime.BuildHttpHealthData());
+                var health = _runtime.BuildHttpHealthData();
+                WriteJson(stream, IsHealthReady(health) ? 200 : 503, health);
                 return;
             }
 
@@ -296,7 +297,20 @@ namespace AIBridge.Runtime.Transports
                 command.Token = bearerToken;
             }
 
-            _runtime.EnqueueHttpCommand(command);
+            string notReadyReason;
+            long mainThreadAgeMs;
+            if (!TryValidateRuntimeReady(out notReadyReason, out mainThreadAgeMs))
+            {
+                WriteJson(stream, 503, BuildRuntimeNotReadyResult(command.Id, notReadyReason, mainThreadAgeMs));
+                return;
+            }
+
+            string enqueueError;
+            if (!_runtime.EnqueueHttpCommand(command, out enqueueError))
+            {
+                WriteJson(stream, 503, BuildRuntimeNotReadyResult(command.Id, enqueueError, mainThreadAgeMs));
+                return;
+            }
 
             var timeoutMs = ResolveCommandTimeout(request);
             var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
@@ -308,11 +322,54 @@ namespace AIBridge.Runtime.Transports
                     return;
                 }
 
+                if (!TryValidateRuntimeReady(out notReadyReason, out mainThreadAgeMs))
+                {
+                    WriteJson(stream, 503, BuildRuntimeNotReadyResult(command.Id, notReadyReason, mainThreadAgeMs));
+                    return;
+                }
+
                 // 命令必须回到 Unity 主线程执行；HTTP 线程只短轮询等待结果，避免跨线程调用 Unity API。
                 Thread.Sleep(20);
             }
 
             WriteJson(stream, 504, AIBridgeRuntimeCommandResult.FromFailure(command.Id, "handler_timeout"));
+        }
+
+        private bool TryValidateRuntimeReady(out string reason, out long mainThreadAgeMs)
+        {
+            reason = null;
+            mainThreadAgeMs = long.MaxValue;
+            if (!_running)
+            {
+                reason = "http_transport_stopping";
+                return false;
+            }
+
+            return _runtime.IsCommandPumpReady(out reason, out mainThreadAgeMs);
+        }
+
+        private static bool IsHealthReady(Dictionary<string, object> health)
+        {
+            if (health == null)
+            {
+                return false;
+            }
+
+            object value;
+            return !health.TryGetValue("ready", out value) || !(value is bool) || (bool)value;
+        }
+
+        private static AIBridgeRuntimeCommandResult BuildRuntimeNotReadyResult(string commandId, string reason, long mainThreadAgeMs)
+        {
+            var result = AIBridgeRuntimeCommandResult.FromFailure(
+                commandId,
+                string.IsNullOrEmpty(reason) ? "runtime_not_ready" : "runtime_not_ready: " + reason);
+            result.Data = new Dictionary<string, object>
+            {
+                ["reason"] = reason,
+                ["lastMainThreadTickAgeMs"] = mainThreadAgeMs == long.MaxValue ? (object)null : mainThreadAgeMs
+            };
+            return result;
         }
 
         private bool ValidateAuthorization(HttpRequestData request, NetworkStream stream)
