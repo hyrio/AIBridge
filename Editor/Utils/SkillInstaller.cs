@@ -21,6 +21,11 @@ namespace AIBridge.Editor
         private const string PACKAGE_NAME = "cn.lys.aibridge";
         private const string CLI_CACHE_FOLDER = ".aibridge/cli";
         private const string CODE_INDEX_FOLDER = "CodeIndex";
+        private const string CODE_INDEX_DAEMON_FILE_NAME = "AIBridgeCodeIndex";
+        private const string CODE_INDEX_TEMP_PREFIX = CODE_INDEX_FOLDER + ".tmp.";
+        private const string CODE_INDEX_BACKUP_PREFIX = CODE_INDEX_FOLDER + ".old.";
+        private const string CODE_INDEX_DAEMON_SHUTDOWN_CLEANUP_MODE = "processOnly";
+        private const int CODE_INDEX_DAEMON_SHUTDOWN_TIMEOUT_MS = 3000;
         private static readonly string[] CLI_FILES = new[]
         {
             "AIBridgeCLI.dll",
@@ -30,6 +35,23 @@ namespace AIBridge.Editor
             "Newtonsoft.Json.dll",
             "AIBridgeCLI"  // macOS/Linux executable (no extension)
         };
+        private static readonly string[] CODE_INDEX_REQUIRED_MANAGED_FILES = new[]
+        {
+            CODE_INDEX_DAEMON_FILE_NAME + ".dll",
+            CODE_INDEX_DAEMON_FILE_NAME + ".deps.json",
+            CODE_INDEX_DAEMON_FILE_NAME + ".runtimeconfig.json",
+            "Newtonsoft.Json.dll",
+            "Microsoft.CodeAnalysis.dll",
+            "Microsoft.CodeAnalysis.CSharp.dll",
+            "Microsoft.CodeAnalysis.Workspaces.dll",
+            "Microsoft.CodeAnalysis.CSharp.Workspaces.dll",
+            "System.Composition.AttributedModel.dll",
+            "System.Composition.Convention.dll",
+            "System.Composition.Hosting.dll",
+            "System.Composition.Runtime.dll",
+            "System.Composition.TypedParts.dll"
+        };
+        private static Action<string, int> _codeIndexDaemonShutdown = AIBridgeCodeIndexEditorUtility.ShutdownDaemon;
         
         private static string GetPlatformRID()
         {
@@ -51,6 +73,15 @@ namespace AIBridge.Editor
             return "AIBridgeCLI.exe";
 #else
             return "AIBridgeCLI";
+#endif
+        }
+
+        private static string GetCodeIndexExecutableName()
+        {
+#if UNITY_EDITOR_WIN
+            return CODE_INDEX_DAEMON_FILE_NAME + ".exe";
+#else
+            return CODE_INDEX_DAEMON_FILE_NAME;
 #endif
         }
 
@@ -230,10 +261,10 @@ namespace AIBridge.Editor
             }
             
             // 包管理器更新时文件时间戳不一定递增，CLI 缓存必须按内容差异判断是否刷新。
-            var needsCopy = IsCliCopyNeeded(sourceCliDir, targetCliDir, cliExeName)
-                || IsCodeIndexCopyNeeded(sourceCliDir, targetCliDir);
+            var cliNeedsCopy = IsCliCopyNeeded(sourceCliDir, targetCliDir, cliExeName);
+            var codeIndexNeedsCopy = IsCodeIndexCopyNeeded(sourceCliDir, targetCliDir);
             
-            if (!needsCopy)
+            if (!cliNeedsCopy && !codeIndexNeedsCopy)
             {
                 return;
             }
@@ -245,22 +276,28 @@ namespace AIBridge.Editor
             }
             
             var copiedCount = 0;
-            foreach (var fileName in GetCliFilesToCopy(cliExeName))
+            if (cliNeedsCopy)
             {
-                var sourceFile = Path.Combine(sourceCliDir, fileName);
-                var targetFile = Path.Combine(targetCliDir, fileName);
-                
-                if (File.Exists(sourceFile))
+                foreach (var fileName in GetCliFilesToCopy(cliExeName))
                 {
-                    var makeExecutable = string.Equals(fileName, cliExeName, StringComparison.OrdinalIgnoreCase);
-                    if (CopyFileToCache(sourceFile, targetFile, fileName, makeExecutable))
+                    var sourceFile = Path.Combine(sourceCliDir, fileName);
+                    var targetFile = Path.Combine(targetCliDir, fileName);
+
+                    if (File.Exists(sourceFile))
                     {
-                        copiedCount++;
+                        var makeExecutable = string.Equals(fileName, cliExeName, StringComparison.OrdinalIgnoreCase);
+                        if (CopyFileToCache(sourceFile, targetFile, fileName, makeExecutable))
+                        {
+                            copiedCount++;
+                        }
                     }
                 }
             }
 
-            copiedCount += CopyCodeIndexToCache(sourceCliDir, targetCliDir);
+            if (codeIndexNeedsCopy)
+            {
+                copiedCount += RefreshCodeIndexCache(sourceCliDir, targetCliDir);
+            }
             
             if (copiedCount > 0)
             {
@@ -391,11 +428,18 @@ namespace AIBridge.Editor
             }
         }
 
-        private static bool IsCodeIndexCopyNeeded(string sourceCliDir, string targetCliDir)
+        internal static bool IsCodeIndexCopyNeeded(string sourceCliDir, string targetCliDir)
         {
             var sourceDir = Path.Combine(sourceCliDir, CODE_INDEX_FOLDER);
             if (!Directory.Exists(sourceDir))
             {
+                return false;
+            }
+
+            string[] sourceMissingFiles;
+            if (!IsCodeIndexDirectoryComplete(sourceDir, out sourceMissingFiles))
+            {
+                AIBridgeLogger.LogWarning("[SkillInstaller] Source CodeIndex directory is incomplete and will not be copied. Missing: " + FormatMissingFiles(sourceMissingFiles));
                 return false;
             }
 
@@ -405,7 +449,50 @@ namespace AIBridge.Editor
                 return true;
             }
 
+            string[] targetMissingFiles;
+            if (!IsCodeIndexDirectoryComplete(targetDir, out targetMissingFiles))
+            {
+                return true;
+            }
+
             return IsDirectoryCopyNeeded(sourceDir, targetDir);
+        }
+
+        internal static bool IsCodeIndexDirectoryComplete(string directory, out string[] missingFiles)
+        {
+            var missing = new List<string>();
+            if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+            {
+                missing.Add(CODE_INDEX_FOLDER);
+                missingFiles = missing.ToArray();
+                return false;
+            }
+
+            foreach (var fileName in GetRequiredCodeIndexFiles())
+            {
+                if (!File.Exists(Path.Combine(directory, fileName)))
+                {
+                    missing.Add(fileName);
+                }
+            }
+
+            missingFiles = missing.ToArray();
+            return missing.Count == 0;
+        }
+
+        private static IEnumerable<string> GetRequiredCodeIndexFiles()
+        {
+            yield return GetCodeIndexExecutableName();
+
+            foreach (var fileName in CODE_INDEX_REQUIRED_MANAGED_FILES)
+            {
+                yield return fileName;
+            }
+        }
+
+        private static string FormatMissingFiles(IEnumerable<string> missingFiles)
+        {
+            return string.Join(", ", missingFiles ?? Enumerable.Empty<string>());
         }
 
         private static bool IsDirectoryCopyNeeded(string sourceDir, string targetDir)
@@ -449,7 +536,7 @@ namespace AIBridge.Editor
             return Path.GetFileName(filePath);
         }
 
-        private static int CopyCodeIndexToCache(string sourceCliDir, string targetCliDir)
+        internal static int CopyCodeIndexToCache(string sourceCliDir, string targetCliDir)
         {
             var sourceDir = Path.Combine(sourceCliDir, CODE_INDEX_FOLDER);
             if (!Directory.Exists(sourceDir))
@@ -458,20 +545,51 @@ namespace AIBridge.Editor
             }
 
             var targetDir = Path.Combine(targetCliDir, CODE_INDEX_FOLDER);
+            var tempDir = Path.Combine(targetCliDir, CODE_INDEX_TEMP_PREFIX + Guid.NewGuid().ToString("N"));
+            var backupDir = Path.Combine(targetCliDir, CODE_INDEX_BACKUP_PREFIX + Guid.NewGuid().ToString("N"));
             try
             {
-                if (Directory.Exists(targetDir))
+                string[] sourceMissingFiles;
+                if (!IsCodeIndexDirectoryComplete(sourceDir, out sourceMissingFiles))
                 {
-                    Directory.Delete(targetDir, true);
+                    AIBridgeLogger.LogWarning("[SkillInstaller] Refused to copy incomplete CodeIndex source. Missing: " + FormatMissingFiles(sourceMissingFiles));
+                    return 0;
                 }
 
-                return CopyDirectoryContents(sourceDir, targetDir);
+                DeleteDirectoryIfExists(tempDir);
+                DeleteDirectoryIfExists(backupDir);
+                var copied = CopyDirectoryContents(sourceDir, tempDir);
+
+                string[] copiedMissingFiles;
+                if (!IsCodeIndexDirectoryComplete(tempDir, out copiedMissingFiles))
+                {
+                    DeleteDirectoryIfExists(tempDir);
+                    AIBridgeLogger.LogWarning("[SkillInstaller] Refused to install incomplete CodeIndex cache. Missing: " + FormatMissingFiles(copiedMissingFiles));
+                    return 0;
+                }
+
+                if (Directory.Exists(targetDir))
+                {
+                    Directory.Move(targetDir, backupDir);
+                }
+
+                Directory.Move(tempDir, targetDir);
+                DeleteDirectoryIfExists(backupDir);
+                return copied;
             }
             catch (Exception ex)
             {
+                RestoreCodeIndexBackup(targetDir, backupDir);
+                DeleteDirectoryIfExists(tempDir);
                 AIBridgeLogger.LogWarning($"[SkillInstaller] Failed to copy {CODE_INDEX_FOLDER}: {ex.Message}");
                 return 0;
             }
+        }
+
+        internal static int RefreshCodeIndexCache(string sourceCliDir, string targetCliDir)
+        {
+            ShutdownCodeIndexDaemonBeforeCacheRefresh();
+            return CopyCodeIndexToCache(sourceCliDir, targetCliDir);
         }
 
         private static int CopyDirectoryContents(string sourceDir, string targetDir)
@@ -481,8 +599,14 @@ namespace AIBridge.Editor
             var copied = 0;
             foreach (var filePath in Directory.GetFiles(sourceDir))
             {
-                var targetFile = Path.Combine(targetDir, Path.GetFileName(filePath));
+                var fileName = Path.GetFileName(filePath);
+                var targetFile = Path.Combine(targetDir, fileName);
                 File.Copy(filePath, targetFile, true);
+                if (string.Equals(fileName, GetCodeIndexExecutableName(), StringComparison.OrdinalIgnoreCase))
+                {
+                    EnsureExecutablePermission(targetFile);
+                }
+
                 copied++;
             }
 
@@ -492,6 +616,53 @@ namespace AIBridge.Editor
             }
 
             return copied;
+        }
+
+        private static void ShutdownCodeIndexDaemonBeforeCacheRefresh()
+        {
+            try
+            {
+                _codeIndexDaemonShutdown(CODE_INDEX_DAEMON_SHUTDOWN_CLEANUP_MODE, CODE_INDEX_DAEMON_SHUTDOWN_TIMEOUT_MS);
+            }
+            catch (Exception ex)
+            {
+                AIBridgeLogger.LogWarning("[SkillInstaller] Failed to shutdown CodeIndex daemon before cache refresh: " + ex.Message);
+            }
+        }
+
+        private static void RestoreCodeIndexBackup(string targetDir, string backupDir)
+        {
+            if (string.IsNullOrEmpty(backupDir) || !Directory.Exists(backupDir) || Directory.Exists(targetDir))
+            {
+                return;
+            }
+
+            try
+            {
+                Directory.Move(backupDir, targetDir);
+            }
+            catch (Exception ex)
+            {
+                AIBridgeLogger.LogWarning("[SkillInstaller] Failed to restore previous CodeIndex cache: " + ex.Message);
+            }
+        }
+
+        private static void DeleteDirectoryIfExists(string path)
+        {
+            if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+            {
+                Directory.Delete(path, true);
+            }
+        }
+
+        internal static void SetCodeIndexDaemonShutdownForTests(Action<string, int> shutdownHandler)
+        {
+            _codeIndexDaemonShutdown = shutdownHandler ?? AIBridgeCodeIndexEditorUtility.ShutdownDaemon;
+        }
+
+        internal static void ResetCodeIndexDaemonShutdownForTests()
+        {
+            _codeIndexDaemonShutdown = AIBridgeCodeIndexEditorUtility.ShutdownDaemon;
         }
 
         /// <summary>
