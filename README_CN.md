@@ -114,15 +114,17 @@ https://gitee.com/lijoujou99_admin/AIBridge.git
 
 ## 配置 AI 工作流
 
-1. 在 Unity Editor 中打开 `Tools > AIBridge Settings`。
-2. 进入 `Skills Installation` 区域。
+1. 在 Unity Editor 中打开 `AIBridge/Workflows`。
+2. 进入 `Skills` 页签。
 3. 勾选正在使用的 AI 工具。
 4. 点击 `Install Selected Integrations`。
 5. 可选：点击 `Install Unity Project AGENTS.md Template`，在项目根目录创建 `AGENTS.md`。
 
-安装后的 AIBridge Skills 默认写入各已选工具自己的默认 skills 目录，例如 Codex 使用 `.codex/skills/`。也可以在 Skills 安装页签设置自定义目录，但自定义目录可能无法被 AI 工具自动发现。不同 AI 工具只写入各自的最小 RootRule；只有自定义目录需要时才写入插件适配层并引用该 Skill 根目录。RootRule 只包含固定 CLI 路径、常用命令、Skill 根目录和 `aibridge-development-workflow` 入口；多分支路由和针对性检查清单由 workflow Skill 维护。高级 Workflow 编排规则会作为 AIBridge Skill 一起安装，只在多 Agent workflow、对抗验证、recipe、Runtime 调试诊断或 Runtime 多目标 sweep 任务中加载。命令说明会生成到各 Skill 的 `references/` 目录。
+安装后的 AIBridge Skills 默认写入各已选工具自己的默认 skills 目录，例如 Codex 使用 `.codex/skills/`。也可以在 `Workflows > Skills` 页签设置自定义目录，但自定义目录可能无法被 AI 工具自动发现。不同 AI 工具只写入各自的最小 RootRule；只有自定义目录需要时才写入插件适配层并引用该 Skill 根目录。RootRule 只包含固定 CLI 路径、常用命令、Skill 根目录和 `aibridge-development-workflow` 入口；多分支路由和针对性检查清单由 workflow Skill 维护。高级 Workflow 编排规则会作为 AIBridge Skill 一起安装，只在多 Agent workflow、对抗验证、recipe、Runtime 调试诊断或 Runtime 多目标 sweep 任务中加载。命令说明会生成到各 Skill 的 `references/` 目录。
 
-如果项目有需要，也可以在 `Recommended Skill Library / 推荐 Skill 库` 页签刷新默认的 `obra/superpowers` 推荐仓库，并将其中的第三方 Skill 安装到已选工具的 skills 目录。
+如果项目有需要，也可以在 `Workflows > 推荐库` 页签刷新默认的 `obra/superpowers` 推荐仓库，并将其中的第三方 Skill 安装到已选工具的 skills 目录。
+
+`Workflows > Workflow 选项` 会保存项目级工作流偏好。应用这些选项时，会刷新已安装的 `aibridge-development-workflow` Skill 下的生成文件，包括 `references/project-workflow-preferences.md` 和根据分支开关生成的分支选择规则。
 
 ## CLI 与命令参考
 
@@ -426,6 +428,7 @@ $CLI code cancel
 ```text
 Editor/        Unity Editor 命令、设置窗口、集成逻辑、Prefab Patch
 Runtime/       Runtime 桥接契约和轻量运行时数据
+Doc~/          包级功能文档和功能规格说明
 Tools~/       AIBridgeCLI 源码、CodeIndex daemon 源码和随包平台二进制
 Templates~/   AI 根规则模板和 Unity 项目 AGENTS.md 模板
 Skill~/       AIBridge Skills 和工作流参考

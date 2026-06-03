@@ -114,15 +114,17 @@ You can also clone this repository into a Unity project's `Packages` folder.
 
 ## Configure AI Workflow
 
-1. Open `Tools > AIBridge Settings` in Unity Editor.
-2. Open the `Skills Installation` section.
+1. Open `AIBridge/Workflows` in Unity Editor.
+2. Open the `Skills` tab.
 3. Select the AI tools you use.
 4. Click `Install Selected Integrations`.
 5. Optionally click `Install Unity Project AGENTS.md Template` to create a root `AGENTS.md`.
 
-Installed AIBridge Skills are written to each selected tool's default skills directory by default, such as `.codex/skills/` for Codex. You can set a custom directory in the Skills Installation tab, but custom directories may not be discovered automatically by the AI tool. Each AI tool receives a minimal RootRule and, only when needed for a custom directory, a plugin adapter that references the Skill root. The RootRule only includes the fixed CLI path, common commands, Skill root, and `aibridge-development-workflow` entry point; multi-branch routing and targeted checklists live in the workflow Skill. Advanced workflow orchestration guidance is installed as an AIBridge Skill and is loaded only for multi-agent workflow, adversarial verification, recipe, Runtime debug investigation, or Runtime target sweep tasks. Command references are generated under each installed Skill's `references/` directory.
+Installed AIBridge Skills are written to each selected tool's default skills directory by default, such as `.codex/skills/` for Codex. You can set a custom directory in the `Workflows > Skills` tab, but custom directories may not be discovered automatically by the AI tool. Each AI tool receives a minimal RootRule and, only when needed for a custom directory, a plugin adapter that references the Skill root. The RootRule only includes the fixed CLI path, common commands, Skill root, and `aibridge-development-workflow` entry point; multi-branch routing and targeted checklists live in the workflow Skill. Advanced workflow orchestration guidance is installed as an AIBridge Skill and is loaded only for multi-agent workflow, adversarial verification, recipe, Runtime debug investigation, or Runtime target sweep tasks. Command references are generated under each installed Skill's `references/` directory.
 
-You can also open the `Recommended Skill Library` tab, refresh the default `obra/superpowers` repository, and install third-party Skills into the selected tools' skills directories.
+You can also open the `Workflows > Recommended Library` tab, refresh the default `obra/superpowers` repository, and install third-party Skills into the selected tools' skills directories.
+
+`Workflows > Workflow Options` stores project-level workflow preferences. Applying these options refreshes generated files under the installed `aibridge-development-workflow` Skill, including `references/project-workflow-preferences.md` and the generated branch selection rules.
 
 ## CLI And Command Reference
 
@@ -426,6 +428,7 @@ $CLI code cancel
 ```text
 Editor/        Unity Editor commands, settings window, integrations, prefab patching
 Runtime/       Runtime bridge contracts and lightweight runtime data
+Doc~/          Package-level feature docs and functional specifications
 Tools~/       AIBridgeCLI source, CodeIndex daemon source, and bundled platform binaries
 Templates~/   AI root-rule templates and Unity project AGENTS.md template
 Skill~/       AIBridge Skills and workflow references

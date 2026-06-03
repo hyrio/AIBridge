@@ -4,6 +4,8 @@
 
 `aibridge-development-workflow` 是兼容入口，不直接假设所有任务都是实现任务。进入工作流后先执行 Preflight / Skill 路由步骤，选择一个主分支，再进入对应模式生命周期。
 
+安装到 assistant Skill 目录后，本文件会由 `AIBridge/Workflows` 根据项目偏好生成。生成版本只把启用分支列为默认可选分支。若存在 `project-workflow-preferences.md`，必须先读取该文件，再读取本文件。
+
 ## 工作流生命周期
 
 ```text
@@ -24,11 +26,13 @@ Preflight / Skill Routing
 
 | 主分支 | 触发信号 | 默认目标 | 常用 Skills / 工具 |
 |---|---|---|---|
-| 实施分支 | 创建、修改、修复、重构、生成、迁移、提交 | 改动当前工作树并验证 | `aibridge`、`aibridge-code-index`、`aibridge-prefab-patch`、`unity-yaml-editing`、`aibridge-batch-script` |
-| 调试诊断分支 | 排查、诊断、复现、为什么、追踪、日志、Runtime、Player、Play Mode、性能、UI 异常 | 收集证据并给出根因判断 | `aibridge`、`aibridge-code-index`、`aibridge-workflow-orchestration`、`aibridge-batch-script` |
-| 审查分支 | review、audit、检查风险、设计评审、只读分析 | 输出 confirmed findings 和剩余风险 | `aibridge-code-index`、`rg`、按需 `aibridge-workflow-orchestration` |
-| 验证分支 | 编译、日志、截图、测试、Runtime/UI 验证、回归确认 | 给出可重复验证结果 | `aibridge`、现有 workflow recipe |
-| 编排分支 | workflow recipe、多 Agent、并行 sweep、对抗验证、结构化 artifact | 设计或执行结构化 workflow | `aibridge-workflow-orchestration` |
+| 实施分支 | 创建、修改、修复、重构、生成、迁移、提交 | 改动当前工作树并验证 | `references/branches/implementation.md` |
+| 调试诊断分支 | 排查、诊断、复现、为什么、追踪、日志、Runtime、Player、Play Mode、性能、UI 异常 | 收集证据并给出根因判断 | `references/branches/debug.md` |
+| 审查分支 | review、audit、检查风险、设计评审、只读分析 | 输出 confirmed findings 和剩余风险 | `references/branches/review.md` |
+| 验证分支 | 编译、日志、截图、测试、Runtime/UI 验证、回归确认 | 给出可重复验证结果 | `references/branches/validation.md` |
+| 编排分支 | workflow recipe、多 Agent、并行 sweep、对抗验证、结构化 artifact | 设计或执行结构化 workflow | `references/branches/orchestration.md` |
+
+进入某个分支后，只读取该分支文档和必要 checklist，不预加载其它分支文档。项目偏好禁用的分支不能自动进入；如果用户明确要求禁用分支，先说明该分支已关闭并请求确认。
 
 ## 交接规则
 

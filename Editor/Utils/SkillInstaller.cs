@@ -814,6 +814,7 @@ namespace AIBridge.Editor
                         result.SkillFileAction = InstallSkillFileForTarget(projectRoot, target, sourceSkillPath, out skillFilePath);
                         result.SkillFilePath = skillFilePath;
                         result.AdditionalSkillFilePaths.AddRange(InstallAdditionalSkillDirectoriesForTarget(projectRoot, target));
+                        GenerateWorkflowPreferenceFilesForTarget(projectRoot, target);
                         GenerateSkillReferenceFilesForTarget(projectRoot, target);
                     }
 
@@ -920,6 +921,88 @@ namespace AIBridge.Editor
             return installedSkillFiles;
         }
 
+        internal static List<string> GenerateWorkflowPreferenceFilesForSelectedTargets(string projectRoot)
+        {
+            var generatedFiles = new List<string>();
+            foreach (var target in GetSelectedTargets(projectRoot))
+            {
+                generatedFiles.AddRange(GenerateWorkflowPreferenceFilesForTarget(projectRoot, target));
+            }
+
+            return generatedFiles;
+        }
+
+        private static List<string> GenerateWorkflowPreferenceFilesForTarget(string projectRoot, AssistantIntegrationTarget target)
+        {
+            var generatedFiles = new List<string>();
+            var sourceSkillRoot = GetSourceSkillRootPath();
+            var targetSkillRoot = GetTargetSkillRootDirectory(projectRoot, target);
+            if (string.IsNullOrEmpty(sourceSkillRoot) || string.IsNullOrEmpty(targetSkillRoot))
+            {
+                return generatedFiles;
+            }
+
+            if (IsUnsafeSkillInstallTarget(sourceSkillRoot, targetSkillRoot))
+            {
+                AIBridgeLogger.LogWarning("[SkillInstaller] Refused to generate workflow preference files into package source Skill~ directory: " + targetSkillRoot);
+                return generatedFiles;
+            }
+
+            var workflowSkillDirectory = Path.Combine(targetSkillRoot, WorkflowPreferenceRenderer.DevelopmentWorkflowSkillName);
+            if (!Directory.Exists(workflowSkillDirectory))
+            {
+                return generatedFiles;
+            }
+
+            SyncWorkflowSkillEntryFile(sourceSkillRoot, workflowSkillDirectory);
+            SyncWorkflowBranchDocuments(sourceSkillRoot, workflowSkillDirectory);
+            var preferencesPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.PreferencesRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            var branchSelectionPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.BranchSelectionRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            EnsureParentDirectory(preferencesPath);
+            EnsureParentDirectory(branchSelectionPath);
+            File.WriteAllText(preferencesPath, WorkflowPreferenceRenderer.RenderPreferences(projectRoot, target), Encoding.UTF8);
+            File.WriteAllText(branchSelectionPath, WorkflowPreferenceRenderer.RenderBranchSelection(projectRoot, target), Encoding.UTF8);
+            generatedFiles.Add(preferencesPath);
+            generatedFiles.Add(branchSelectionPath);
+            return generatedFiles;
+        }
+
+        private static void SyncWorkflowSkillEntryFile(string sourceSkillRoot, string workflowSkillDirectory)
+        {
+            var sourceSkillPath = Path.Combine(
+                sourceSkillRoot,
+                WorkflowPreferenceRenderer.DevelopmentWorkflowSkillName,
+                SKILL_FILE_NAME);
+            if (!File.Exists(sourceSkillPath))
+            {
+                return;
+            }
+
+            var targetSkillPath = Path.Combine(workflowSkillDirectory, SKILL_FILE_NAME);
+            GenerateAndWriteSkillFile(sourceSkillPath, workflowSkillDirectory, targetSkillPath);
+        }
+
+        private static void SyncWorkflowBranchDocuments(string sourceSkillRoot, string workflowSkillDirectory)
+        {
+            var sourceBranchesDirectory = Path.Combine(
+                sourceSkillRoot,
+                WorkflowPreferenceRenderer.DevelopmentWorkflowSkillName,
+                "references",
+                "branches");
+            if (!Directory.Exists(sourceBranchesDirectory))
+            {
+                return;
+            }
+
+            var targetBranchesDirectory = Path.Combine(workflowSkillDirectory, "references", "branches");
+            if (Directory.Exists(targetBranchesDirectory))
+            {
+                Directory.Delete(targetBranchesDirectory, true);
+            }
+
+            CopyDirectory(sourceBranchesDirectory, targetBranchesDirectory);
+        }
+
         private static void GenerateSkillReferenceFilesForTarget(string projectRoot, AssistantIntegrationTarget target)
         {
             var targetSkillDirectory = GetTargetSkillDirectory(projectRoot, target);
@@ -930,6 +1013,15 @@ namespace AIBridge.Editor
 
             var commands = CommandRegistry.GetAllCommands();
             SkillDocumentGenerator.GenerateReferenceFiles(targetSkillDirectory, commands);
+        }
+
+        private static void EnsureParentDirectory(string filePath)
+        {
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
         }
 
         private static string GetTargetSkillDirectory(string projectRoot, AssistantIntegrationTarget target)
@@ -1364,7 +1456,7 @@ namespace AIBridge.Editor
                 {
                     EditorUtility.DisplayDialog(
                         "AIBridge",
-                        AIBridgeEditorText.T("No assistant tools selected for installation. Open AIBridge/Settings and choose at least one tool.", "未选择要安装的 AI 工具。请打开 AIBridge/Settings 并至少选择一个工具。"),
+                        AIBridgeEditorText.T("No assistant tools selected for installation. Open AIBridge/Workflows and choose at least one tool.", "未选择要安装的 AI 工具。请打开 AIBridge/Workflows 并至少选择一个工具。"),
                         AIBridgeEditorText.T("OK", "确定"));
                     return;
                 }
