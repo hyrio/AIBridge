@@ -103,8 +103,20 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("rg -n", workflowSkill);
             StringAssert.Contains("Harness 能力探测模式", workflowSkill);
             StringAssert.Contains("references/harness-readiness.md", workflowSkill);
-            StringAssert.Contains("【Preflight / Skill 路由】", workflowSkill);
+            StringAssert.Contains("【入口：Preflight / Skill 路由】", workflowSkill);
+            StringAssert.Contains("【模式：调试诊断分支】", workflowSkill);
+            StringAssert.Contains("-> 基线证据收集", workflowSkill);
             StringAssert.Contains("activeSkills", workflowSkill);
+
+            var branchSelectionPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "references", "branch-selection.md");
+            var branchSelection = File.ReadAllText(branchSelectionPath);
+            StringAssert.Contains("【入口：Preflight / Skill 路由】", branchSelection);
+            StringAssert.Contains("【模式：<启用分支之一>】", branchSelection);
+            StringAssert.Contains("-> <当前步骤>", branchSelection);
+            StringAssert.Contains("<当前步骤正在收集或产出的内容>", branchSelection);
+            Assert.IsFalse(branchSelection.Contains("【任务分流步骤】"));
+            Assert.IsFalse(branchSelection.Contains("【分支模式】"));
+            Assert.IsFalse(branchSelection.Contains("说明：<当前步骤正在收集或产出的内容>"));
         }
 
         [Test]

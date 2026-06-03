@@ -67,7 +67,7 @@ Mode Exit、phase 结束或 step 交接时，必须输出 `SkillHandoff` compact
 ## 输出格式
 
 ```text
-【Preflight / Skill 路由】
+【入口：Preflight / Skill 路由】
 baselineSkills：aibridge-development-workflow
 activeSkills：aibridge、aibridge-workflow-orchestration
 deferredSkills：aibridge-code-index（仅 C# 语义查询时）
@@ -76,8 +76,11 @@ guardedSkills：aibridge-prefab-patch（仅复杂 Prefab 修改时）
 辅助分支：编排分支（需要 Runtime 多目标 sweep 时）
 理由：用户目标是排查运行时异常，当前验收是证据和根因结论，不是立即修改代码。
 
-【调试诊断模式】
-当前模式 Skills：aibridge-development-workflow、aibridge
-当前步骤：基线证据收集
+【模式：调试诊断分支】
+Skills：aibridge-development-workflow、aibridge
 已加载规范：debug-investigation-workflow、debug-investigation-checklist
+输出目标：收集证据并给出根因判断。
+
+-> 基线证据收集
+读取日志、Runtime 状态和相关代码入口。
 ```

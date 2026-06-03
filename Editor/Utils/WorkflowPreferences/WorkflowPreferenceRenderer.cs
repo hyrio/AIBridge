@@ -132,9 +132,19 @@ namespace AIBridge.Editor
             builder.AppendLine("## 输出格式");
             builder.AppendLine();
             builder.AppendLine("```text");
-            builder.AppendLine("【Preflight / Skill 路由】baselineSkills：aibridge-development-workflow；activeSkills：<当前分支 Skills>");
-            builder.AppendLine("【任务分流步骤】主分支：<启用分支之一>；当前步骤：<当前步骤>");
-            builder.AppendLine("【分支模式】当前模式 Skills：<当前分支 Skills>；已加载规范：<当前分支文档>");
+            builder.AppendLine("【入口：Preflight / Skill 路由】");
+            builder.AppendLine("baselineSkills：aibridge-development-workflow");
+            builder.AppendLine("activeSkills：<当前分支 Skills>");
+            builder.AppendLine("主分支：<启用分支之一>");
+            builder.AppendLine("理由：<进入该分支的依据>");
+            builder.AppendLine();
+            builder.AppendLine("【模式：<启用分支之一>】");
+            builder.AppendLine("Skills：<当前分支 Skills>");
+            builder.AppendLine("已加载规范：<当前分支文档>");
+            builder.AppendLine("输出目标：<本模式的验收目标>");
+            builder.AppendLine();
+            builder.AppendLine("-> <当前步骤>");
+            builder.AppendLine("<当前步骤正在收集或产出的内容>");
             builder.AppendLine("```");
             return builder.ToString();
         }

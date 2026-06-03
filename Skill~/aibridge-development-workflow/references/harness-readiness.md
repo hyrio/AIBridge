@@ -30,7 +30,7 @@
 Preflight 阶段必须把 harness 关键状态并入可观测输出；不必向用户输出完整探测表。只有发生缺失、过期、降级、阻塞，或用户要求说明 harness 状态时，才展开为简短状态块：
 
 ```text
-【Harness 能力探测模式】
+【模式：Harness 能力探测】
 Snapshot：fresh（.aibridge/harness/capabilities.json）
 CLI：available
 Skill：available

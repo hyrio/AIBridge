@@ -1,6 +1,6 @@
 ---
 name: aibridge-development-workflow
-description: "AIBridge/Unity 多分支开发工作流入口。Use when creating, modifying, fixing, debugging, reviewing, or validating C# code, Unity assets, Prefabs, Editor tools, package structure, tests, Skills, Runtime behavior, logs, or workflow recipes. Do not use for pure Q&A or simple code explanation with no investigation."
+description: "AIBridge/Unity 多分支开发工作流入口。Use when creating, modifying, fixing, debugging, reviewing, or validating C# code, Unity assets, Prefabs, Editor tools, package structure, tests, Skills, Runtime behavior, logs, or workflow recipes. Do not use for pure Q&A or simple code explanation with no investigation"
 ---
 
 # AIBridge Development Workflow
@@ -30,18 +30,38 @@ description: "AIBridge/Unity 多分支开发工作流入口。Use when creating,
 
 开发者需要追踪 AI 当前行为和阶段。进入任务、切换模式、进入 workflow phase/step、释放或重新匹配 Skill 时，必须输出简短状态块；不要只在内部记录。
 
+状态块统一使用三层格式：
+
+- `【入口：...】`：只用于 Preflight / Skill 路由或 Transition Preflight，不表示业务模式。
+- `【模式：...】`：只用于实施、调试诊断、审查、验证、编排、检查清单等业务模式。
+- `-> ...`：只用于当前 phase/step，下一行直接写细节，Skills、输出目标等继续换行展示。
+- `【交接：...】`：只用于 Mode Exit、phase 结束或 step handoff。
+
 最小格式：
 
 ```text
-【Preflight / Skill 路由】baselineSkills：aibridge-development-workflow；activeSkills：aibridge
-【任务分流步骤】主分支：调试诊断分支；当前步骤：基线证据收集
-【调试诊断模式】当前模式 Skills：aibridge-development-workflow、aibridge；已加载规范：debug-investigation-workflow
+【入口：Preflight / Skill 路由】
+baselineSkills：aibridge-development-workflow
+activeSkills：aibridge
+主分支：调试诊断分支
+理由：用户目标是排查运行时异常，当前输出目标是证据和根因结论。
+
+【模式：调试诊断分支】
+Skills：aibridge-development-workflow、aibridge
+已加载规范：debug-investigation-workflow
+输出目标：收集基线证据并给出根因判断。
+
+-> 基线证据收集
+读取日志、Runtime 状态和相关代码入口。
+使用 Skills：aibridge-development-workflow、aibridge
 ```
 
-执行中如果步骤变化，输出一行即可：
+执行中如果步骤变化，输出一个简短步骤块即可：
 
 ```text
-【步骤状态】当前步骤：读取 WorkflowReportWriter 和 Skill 入口；使用 Skills：aibridge-development-workflow、aibridge-workflow-orchestration
+-> 读取 WorkflowReportWriter 和 Skill 入口
+定位状态输出模板和导出任务包提示。
+使用 Skills：aibridge-development-workflow、aibridge-workflow-orchestration
 ```
 
 Mode Exit、phase 结束或 step 交接时输出 compact handoff 摘要，至少包含已完成模式、释放的 Skills、下一步建议 Skills、artifact/gate 状态。除非用户明确要求静默或只要最终结果，不要省略这些可观测状态。

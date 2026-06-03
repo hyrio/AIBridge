@@ -140,7 +140,7 @@ Template variables use `{{name}}` or `{{inputs.name}}` and are resolved from the
 
 Skill routing is a preflight step, not a recipe phase or business mode. It computes baseline, active, deferred, and guarded Skills before entering a mode. Release is evaluated at Mode Exit, phase boundary, or step handoff, not when routing finishes.
 
-When an AI harness executes a recipe, this metadata must also be reflected in short visible status text at phase/step entry and handoff. Do not leave the current mode, step, or active Skills only in JSON/report artifacts.
+When an AI harness executes a recipe, this metadata must also be reflected in short visible status blocks at phase/step entry and handoff. Use explicit labels: `【入口：...】` only for routing, `【模式：...】` for business modes, and `-> ...` for phase/step progress. Put active Skills, expected output, handoff, and gate status on separate lines instead of packing them into one sentence.
 
 Allowed locations:
 

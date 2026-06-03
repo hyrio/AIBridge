@@ -1,13 +1,13 @@
 ---
 name: aibridge
-description: Unity Editor and Player Runtime CLI integration for AIBridge. Use for harness snapshot reads, Unity compile/logs/assets/scenes/prefabs/Inspector, screenshots/GIFs, Play Mode input, Runtime Player targets, focus/menu/game view, or AIBridgeCLI syntax. Route batch/multi, complex prefab patching, and direct UnityYAML edits to their specialized Skills.
+description: Unity Editor and Player Runtime CLI integration for AIBridge. Use for harness snapshot reads, Unity compile/logs/assets/scenes/prefabs/Inspector, screenshots/GIFs, Play Mode input, Runtime Player targets, focus/menu/game view, or AIBridgeCLI syntax. Route batch/multi, complex prefab patching, and direct UnityYAML edits to specialized Skills
 ---
 
 # AI Bridge Unity Skill
 
 ## Invocation
 
-Run commands from the Unity project root.
+Run commands from the Unity project root
 
 **CLI Path:** `./.aibridge/cli/AIBridgeCLI.exe`
 
@@ -17,20 +17,20 @@ Run commands from the Unity project root.
 & "./.aibridge/cli/AIBridgeCLI.exe" <command> [action] [options]
 ```
 
-Common global options: `--timeout <ms>`, `--raw`, `--pretty`, `--json <json>`, `--stdin`, `--help`, `--on-dialog <mode>`.
+Common global options: `--timeout <ms>`, `--raw`, `--pretty`, `--json <json>`, `--stdin`, `--help`, `--on-dialog <mode>`
 
-Generated command references are installed under `references/` in the target assistant Skill directory. In the package source tree they may be absent until Skill installation/refresh runs.
+Generated command references are installed under `references/` in the target assistant Skill directory. In the package source tree they may be absent until Skill installation/refresh runs
 
 ## Harness Snapshot
 
-Unity Editor writes `.aibridge/harness/capabilities.json` during Skill installation/refresh.
+Unity Editor writes `.aibridge/harness/capabilities.json` during Skill installation/refresh
 
 ```bash
 $CLI harness status
 $CLI harness status --detail full
 ```
 
-Default `harness status` output is compact. Use `--detail full` or `--include-snapshot true` only when the full snapshot JSON is needed.
+Default `harness status` output is compact. Use `--detail full` or `--include-snapshot true` only when the full snapshot JSON is needed
 
 ## Operating Rules
 
@@ -47,7 +47,7 @@ Default `harness status` output is compact. Use `--detail full` or `--include-sn
 
 ## Related Skills
 
-- `aibridge-batch-script`: `batch` / `multi` automation and long stdin scripts.
-- `aibridge-prefab-patch`: supported complex Prefab asset edits with dry-run.
-- `aibridge-code-index`: optional read-only semantic C# lookup.
-- `unity-yaml-editing`: direct UnityYAML fallback when supported APIs cannot express the operation.
+- `aibridge-batch-script`: `batch` / `multi` automation and long stdin scripts
+- `aibridge-prefab-patch`: supported complex Prefab asset edits with dry-run
+- `aibridge-code-index`: optional read-only semantic C# lookup
+- `unity-yaml-editing`: direct UnityYAML fallback when supported APIs cannot express the operation
