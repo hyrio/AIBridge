@@ -44,4 +44,4 @@
 ## 当前文档
 
 - `WorkflowsPanel.md`：`AIBridge/Workflows` 面板的产品定义文档
-- `workflow-guide/README.md`：AIBridge Workflow 设计与证据校验总览，完整页为 `index.html`
+- `workflow-guide/README.md`：AIBridge Workflow 设计、需求讨论、方案写入与证据校验总览；`README.md` 负责索引，完整展示页为 `index.html`

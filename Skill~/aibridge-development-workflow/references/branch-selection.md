@@ -10,6 +10,7 @@
 
 ```text
 Preflight / Skill Routing
+  -> 需求讨论模式（如有必要）
   -> Mode Enter
   -> Mode Execute
   -> Mode Exit / SkillHandoff / Release
@@ -17,10 +18,28 @@ Preflight / Skill Routing
 ```
 
 - Preflight / Skill Routing 是入口步骤，不是业务模式；它只选择主分支并计算 Skill 状态。
+- 当需求边界、验收标准或方案方向不清晰，或用户要求先分析/先确认时，先进入需求讨论模式，确认后再进入正式主分支。
+- 需求讨论模式是 Preflight 的前置模式，不替代实施、调试、审查、验证或编排分支。
+- 若用户要求，或者项目中有相应的功能文档归类，确认后的方案必须自动写入文档。
+- 方案文档默认优先写 Markdown；当方案包含流程图、决策树、对比表，或更适合开发者浏览时，再同步生成 HTML 展示页。Markdown 和 HTML 应保持同目录、同 basename。
 - Mode Enter 激活当前模式真正需要的 Skill，并读取必要 reference。
 - Mode Execute 执行当前模式的业务步骤。
 - Mode Exit 生成 `SkillHandoff`，并释放下一模式不需要的模式专用 Skill。
 - Transition Preflight 只在模式切换时轻量执行，用上一模式 handoff 计算下一模式的 Skill delta。
+
+## 需求讨论模式
+
+当需求目标、边界、验收标准或方案方向尚未锁定时，先进入需求讨论模式，再重新执行 Preflight / Skill Routing。
+
+```text
+【模式：需求讨论模式】
+Skills：aibridge-development-workflow
+已加载规范：requirements.md、risk-gates.md
+输出目标：收敛需求边界并输出可写入的方案文档。
+
+-> 需求收敛
+记录目标、边界、非目标、约束、方案选项和待确认事项。
+```
 
 ## 分支选择
 

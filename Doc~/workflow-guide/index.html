@@ -181,7 +181,7 @@
 
     .flow {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 12px;
       margin-top: 18px;
     }
@@ -518,7 +518,8 @@
           <h2>阅读顺序</h2>
           <ol>
             <li>先看整体链路，确认入口和交接边界。</li>
-            <li>再看“模式 vs 步骤”，分清业务目标和执行单元。</li>
+            <li>再看需求讨论和方案写入策略，确认什么时候先停下来讨论。</li>
+            <li>然后看“模式 vs 步骤”，分清业务目标和执行单元。</li>
             <li>最后看证据链和 gate，确认什么能通过，什么只能算风险。</li>
           </ol>
         </aside>
@@ -544,7 +545,16 @@
             </ul>
           </article>
           <article class="flow-item">
-            <div class="flow-kicker">02 Enter</div>
+            <div class="flow-kicker">02 Discuss</div>
+            <h3 class="flow-title">需求讨论模式</h3>
+            <ul class="flow-list">
+              <li>只在目标、边界、验收标准或方案方向不清晰时触发</li>
+              <li>先收敛需求，再决定是否写入方案文档</li>
+              <li>确认后再回到正式路由</li>
+            </ul>
+          </article>
+          <article class="flow-item">
+            <div class="flow-kicker">03 Enter</div>
             <h3 class="flow-title">Mode Enter</h3>
             <ul class="flow-list">
               <li>激活当前模式真正需要的 Skills</li>
@@ -553,7 +563,7 @@
             </ul>
           </article>
           <article class="flow-item">
-            <div class="flow-kicker">03 Execute</div>
+            <div class="flow-kicker">04 Execute</div>
             <h3 class="flow-title">Mode Execute</h3>
             <ul class="flow-list">
               <li>按 recipe 的 phase/step 执行</li>
@@ -562,7 +572,7 @@
             </ul>
           </article>
           <article class="flow-item">
-            <div class="flow-kicker">04 Exit</div>
+            <div class="flow-kicker">05 Exit</div>
             <h3 class="flow-title">Mode Exit / SkillHandoff</h3>
             <ul class="flow-list">
               <li>输出 <code>SkillHandoff</code></li>
@@ -571,7 +581,7 @@
             </ul>
           </article>
           <article class="flow-item">
-            <div class="flow-kicker">05 Loop</div>
+            <div class="flow-kicker">06 Loop</div>
             <h3 class="flow-title">Transition Preflight</h3>
             <ul class="flow-list">
               <li>用最新证据重新路由</li>
@@ -583,7 +593,7 @@
 
         <div class="callout">
           <strong>关键点：</strong>
-          入口步骤和业务模式是两层东西。入口只负责“怎么进来”，模式负责“现在干什么”，步骤负责“这一下做什么”。
+          入口只负责“怎么进来”，需求讨论负责“先把问题说清楚”，模式负责“现在干什么”，步骤负责“这一下做什么”。
         </div>
       </section>
 
@@ -598,7 +608,7 @@
           <article class="card">
             <h3>模式</h3>
             <ul>
-              <li>决定 AI 现在是实施、调试、审查、验证，还是编排。</li>
+              <li>决定 AI 现在是需求讨论、实施、调试、审查、验证，还是编排。</li>
               <li>决定当前需要哪些 Skills，以及何时交接。</li>
               <li>关注目标、风险、范围和输出形态。</li>
             </ul>
@@ -655,6 +665,52 @@
         <div class="note-block">
           <strong>常见误区：</strong>
           把 Preflight 当作模式，或者把 step 当作完整任务。前者会把路由和业务混在一起，后者会把局部动作误认为最终结论。
+        </div>
+      </section>
+
+      <section class="section" id="plan-output">
+        <h2>方案写入策略</h2>
+        <p class="section-lead">
+          方案确认后，应自动把方案写入对应文档。默认先写 Markdown 作为源文件，再按展示需求生成 HTML。HTML 不是替代品，而是更适合流程图、决策树、对比表和开发者浏览的展示层。
+        </p>
+
+        <div class="table-wrap" aria-label="方案输出策略">
+          <table>
+            <thead>
+              <tr>
+                <th>场景</th>
+                <th>默认输出</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>短方案、纯文本约定、局部修订</td>
+                <td><code>md</code></td>
+                <td>优先保持可审阅、可 diff、可追踪；确认后自动落盘。</td>
+              </tr>
+              <tr>
+                <td>有流程图、决策树、比较表</td>
+                <td><code>md</code> + <code>html</code></td>
+                <td><code>md</code> 作为源文件，<code>html</code> 作为展示页。</td>
+              </tr>
+              <tr>
+                <td>用户明确希望给开发者看</td>
+                <td><code>md</code> + <code>html</code></td>
+                <td><code>html</code> 更适合浏览，但仍应保留 <code>md</code> 作为主文档。</td>
+              </tr>
+              <tr>
+                <td>项目存在对应功能文档归类</td>
+                <td>写入对应文档目录</td>
+                <td>优先放入模块或包的文档根，再按内容决定是否生成 <code>html</code>。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout">
+          <strong>推荐策略：</strong>
+          默认把 <code>md</code> 作为方案主文档，<code>html</code> 作为视觉化展示页。这样 Git 里好 review，浏览时也能直接看流程图。
         </div>
       </section>
 
@@ -963,6 +1019,14 @@
           <a href="../../Tools~/AIBridgeCLI/Workflow/WorkflowReportWriter.cs">
             <strong>Tools~/AIBridgeCLI/Workflow/WorkflowReportWriter.cs</strong>
             <span>最终报告如何汇总 gate、artifact 和 verdict。</span>
+          </a>
+          <a href="../../Skill~/aibridge-development-workflow/references/branches/requirements.md">
+            <strong>Skill~/aibridge-development-workflow/references/branches/requirements.md</strong>
+            <span>需求讨论模式、方案确认和方案写入规则。</span>
+          </a>
+          <a href="../../Skill~/aibridge-development-workflow/references/risk-gates.md">
+            <strong>Skill~/aibridge-development-workflow/references/risk-gates.md</strong>
+            <span>需求讨论触发条件、确认门槛和输出格式。</span>
           </a>
           <a href="../../Templates~/Workflows/runtime-debug-investigation.aibridge-workflow.json">
             <strong>Templates~/Workflows/runtime-debug-investigation.aibridge-workflow.json</strong>
