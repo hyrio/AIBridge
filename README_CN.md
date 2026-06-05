@@ -7,7 +7,7 @@
 [English](./README.md) | 中文
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.4.12](https://img.shields.io/badge/Package-1.4.12-5b6cff?style=flat-square)
+![Package 1.4.13](https://img.shields.io/badge/Package-1.4.13-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
@@ -288,6 +288,25 @@ PowerShell 传复杂 JSON 时建议先构造变量：
 $values = (@{ 'm_LocalPosition.x' = 0; 'm_LocalPosition.y' = 1 } | ConvertTo-Json -Compress) -replace '"', '\"'
 & "./.aibridge/cli/AIBridgeCLI.exe" inspector set_properties --assetPath 'Assets/Prefabs/Player.prefab' --componentName Transform --values $values
 ```
+
+### 外部 Exec
+
+`exec` 用于无 shell 执行 `rg`、`git`、`dotnet`、`python` 或 `node` 等外部工具。请求通过 stdin 或请求文件传入 JSON，参数保持数组形式，不再拼接 PowerShell 字符串。
+
+```powershell
+$request = @'
+{
+  "command": "rg",
+  "args": ["-n"],
+  "queries": ["ProcessStartInfo", "ArgumentList"],
+  "globs": ["*.cs"],
+  "paths": ["Packages/cn.lys.aibridge/Tools~/AIBridgeCLI"]
+}
+'@
+$request | & "./.aibridge/cli/AIBridgeCLI.exe" exec run --stdin
+```
+
+多条独立命令使用 `jobs` 批量请求。`rg` 和 `search` 请求会把退出码 `1` 视为成功的无匹配结果。
 
 ### Batch 和 Multi
 

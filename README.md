@@ -7,7 +7,7 @@
 English | [中文](./README_CN.md)
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.4.12](https://img.shields.io/badge/Package-1.4.12-5b6cff?style=flat-square)
+![Package 1.4.13](https://img.shields.io/badge/Package-1.4.13-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
@@ -288,6 +288,25 @@ PowerShell JSON tip:
 $values = (@{ 'm_LocalPosition.x' = 0; 'm_LocalPosition.y' = 1 } | ConvertTo-Json -Compress) -replace '"', '\"'
 & "./.aibridge/cli/AIBridgeCLI.exe" inspector set_properties --assetPath 'Assets/Prefabs/Player.prefab' --componentName Transform --values $values
 ```
+
+### External Exec
+
+Use `exec` for shellless external tools such as `rg`, `git`, `dotnet`, `python`, or `node`. Requests are JSON from stdin or a request file; arguments stay as arrays instead of PowerShell strings.
+
+```powershell
+$request = @'
+{
+  "command": "rg",
+  "args": ["-n"],
+  "queries": ["ProcessStartInfo", "ArgumentList"],
+  "globs": ["*.cs"],
+  "paths": ["Packages/cn.lys.aibridge/Tools~/AIBridgeCLI"]
+}
+'@
+$request | & "./.aibridge/cli/AIBridgeCLI.exe" exec run --stdin
+```
+
+For multiple independent commands, send a `jobs` batch. `rg` and `search` requests treat exit code `1` as a successful no-match result.
 
 ### Batch And Multi
 
