@@ -43,6 +43,7 @@ namespace AIBridgeCLI.Commands
             Register(new WorkflowCommandBuilder());
             Register(new HarnessCommandBuilder());
             Register(new ExecCommandBuilder());
+            Register(new RawCommandBuilder());
 
             _initialized = true;
         }
